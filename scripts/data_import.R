@@ -23,3 +23,16 @@ samples <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPl
 
 names(samples)
 
+generate_dataframe <- function(number) {
+  taxon_col <- sym(paste0("taxon_", number))
+  height_col <- sym(paste0("taxon_", number, "_height"))
+  bb_col <- sym(paste0("taxon_", number, "_bb"))
+  
+  df_raw %>%
+    select(1:31, !!taxon_col, !!height_col, !!bb_col, 74:78) %>%
+    mutate(rowid = row_number(),
+           position = paste0("taxon_", number)) %>%
+    rename(taxon = !!taxon_col,
+           height = !!height_col,
+           bb = !!bb_col)
+}
