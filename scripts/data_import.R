@@ -19,9 +19,10 @@ samples_qgis <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/Mapp
 
 names(samples_qgis)
 
-samples <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/samples.csv")
+df_raw <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/samples.csv", col_types = cols(Date = col_datetime(format = "%m/%d/%Y %H.%M"))) |> 
+  clean_names() |> 
+  mutate(rowid = row_number())
 
-names(samples)
 
 generate_dataframe <- function(number) {
   taxon_col <- sym(paste0("taxon_", number))
@@ -36,3 +37,9 @@ generate_dataframe <- function(number) {
            height = !!height_col,
            bb = !!bb_col)
 }
+
+taxon_list <- lapply(1:14, generate_dataframe)
+
+pivot <- bind_rows(taxon_list) %>% 
+  mutate(veg_mean_height = rowMeans(select(.,veg_height_n,veg_height_s,veg_height_e,veg_height_w)))%>%
+  filter(!is.na(taxon))
