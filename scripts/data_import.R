@@ -42,9 +42,11 @@ df_raw <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPla
 
 df_cover <- df_raw |> 
  mutate(across(ends_with("_bb"), bb_to_cover)) |> 
-  mutate(total_cover = rowSums(across(ends_with("_bb")), na.rm = TRUE),
-         richness = rowSums(across(ends_with("_bb")) > 0, na.rm = TRUE))
+  mutate(total_cover = rowSums(across(ends_with("_bb")), na.rm = TRUE))
+
+summary(df_cover)
   
+#### final abiotic df###########################################################
 
 abiotic_plot <- df_cover |> 
   dplyr::select(plot_name , veg_height_ave, bare_ground_bb, x, y, total_cover, richness, shannon)
@@ -52,6 +54,54 @@ abiotic_plot <- df_cover |>
 summary(abiotic_plot)
 
 
+#### species matrix ############################################################
+
+# Step 1: pivot just the species names to long
+taxon_names <- df_cover |>
+  select(plot_name, matches("^taxon_[0-9]+$")) |>
+  pivot_longer(-plot_name, names_to = "slot", values_to = "species_name")
+
+# Step 2: pivot just the bb values to long
+taxon_bb <- df_cover |>
+  select(plot_name, matches("^taxon_[0-9]+_bb$")) |>
+  pivot_longer(-plot_name, names_to = "slot", values_to = "cover") |>
+  mutate(slot = str_remove(slot, "_bb$"))
+
+# Step 3: pivot just the height values to long
+taxon_height <- df_cover |>
+  select(plot_name, matches("^taxon_[0-9]+_height$")) |>
+  pivot_longer(-plot_name, names_to = "slot", values_to = "height") |>
+  mutate(slot = str_remove(slot, "_height$"))
+
+# Step 4: join all three together
+species_long <- taxon_names |>
+  left_join(taxon_bb, by = c("plot_name", "slot")) |>
+  left_join(taxon_height, by = c("plot_name", "slot")) |>
+  filter(!is.na(species_name) & species_name != "") |> 
+  select(-slot)
+
+species_long |> 
+  distinct(species_name) |> 
+  arrange(species_name) |> 
+  print(n = Inf)
+
+species_long <- species_long |>
+  mutate(
+    species_name = str_trim(species_name),           # remove whitespace
+    species_name = str_remove(species_name, "_+$"),  # remove trailing underscores
+    species_name = case_when(
+      species_name == "Scirpis caespitosus" ~ "Scirpus caespitosus",
+      TRUE ~ species_name
+    )
+  )
+
+df_cover <- df_cover |>
+  left_join(species_matrix |> select(plot_name), by = "plot_name") |>
+  mutate(
+    richness = rowSums(sp_cols > 0),
+    shannon = vegan::diversity(sp_cols, index = "shannon")
+  )
+#### other stuff ###############################################################
 species_cols <- df_raw |> 
   select(ends_with("_bb")) |> 
   names() |> 
