@@ -118,6 +118,19 @@ abiotic_plot <- abiotic_plot |>
     richness = rowSums(sp_cols > 0),
     shannon = vegan::diversity(sp_cols, index = "shannon")
   )
+
+#### species frequency #########################################################
+
+species_frequency <- species_matrix |>
+  select(-plot_name) |>
+  summarise(across(everything(), ~ sum(. > 0))) |>
+  pivot_longer(everything(), 
+               names_to = "species", 
+               values_to = "n_plots") |>
+  arrange(n_plots)
+
+print(species_frequency, n = Inf)
+
 #### other stuff ###############################################################
 species_cols <- df_raw |> 
   select(ends_with("_bb")) |> 
