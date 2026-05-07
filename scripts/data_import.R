@@ -1,10 +1,10 @@
-#### packages ####
+#### packages ##################################################################
 
 library(tidyverse)
 library(vegan)
 library(janitor)
 
-#### functions ####
+#### functions #################################################################
 bb_to_cover <- function(x) {
   dplyr::case_when(
     startsWith(x, "5 (") ~ 87.5,
@@ -20,39 +20,32 @@ bb_to_cover <- function(x) {
   )
 }
 
-#### loading the data ####
+#### loading the data ##########################################################
 
 tms <- readRDS("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/tms_pivot.rds") |> 
   clean_names() |> 
   group_by(plot) |> 
   reframe(temp_mean_tms = mean(temp),
-          mean_soilmoisture_tms = mean(moisture_data_raw))
-
-summary(tms)
+          mean_soilmoisture_tms = mean(moisture_data_raw)) |> 
+  mutate(plot_name = toupper(plot)) |> 
+  mutate(vwc_tms = (mean_soilmoisture_tms - min(mean_soilmoisture_tms)) / 
+           (max(mean_soilmoisture_tms) - min(mean_soilmoisture_tms)) * 100)
 
 samples_qgis <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/samples_qgis.csv") |> 
   select(plot, X,Y,elevation, ndvi, ndwi) |> 
-  left_join(tms, by = "plot")
+  left_join(tms, by = "plot_name")
 
 names(samples_qgis)
 
 df_raw <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/samples.csv", col_types = cols(Date = col_datetime(format = "%m/%d/%Y %H.%M"))) |> 
   clean_names() |> 
-  mutate(rowid = row_number())
+  mutate(rowid = row_number(), plot_name = toupper(plot_name))
 
 df_cover <- df_raw |> 
  mutate(across(ends_with("_bb"), bb_to_cover)) |> 
   mutate(total_cover = rowSums(across(ends_with("_bb")), na.rm = TRUE))
 
 summary(df_cover)
-  
-#### final abiotic df###########################################################
-
-abiotic_plot <- df_cover |> 
-  dplyr::select(plot_name , veg_height_ave, bare_ground_bb, x, y, total_cover, richness, shannon)
-  
-summary(abiotic_plot)
-
 
 #### species matrix ############################################################
 
@@ -112,12 +105,20 @@ species_matrix <- species_long |>
 
 sp_cols <- species_matrix |> select(-plot_name)
 
-abiotic_plot <- abiotic_plot |>
+abiotic_plot <- df_cover |>
   left_join(species_matrix |> select(plot_name), by = "plot_name") |>
   mutate(
     richness = rowSums(sp_cols > 0),
     shannon = vegan::diversity(sp_cols, index = "shannon")
   )
+
+#### final abiotic df###########################################################
+
+abiotic_plot <- abiotic_plot |> 
+  select(-plot, plot_name, veg_height_ave, bare_ground_bb, x, y, total_cover, richness, shannon, soil_moi_ave, soil_tem_ave) |> 
+  left_join(tms, by = "plot_name")
+  
+summary(abiotic_plot)
 
 #### species frequency #########################################################
 
@@ -131,63 +132,3 @@ species_frequency <- species_matrix |>
 
 print(species_frequency, n = Inf)
 
-#### other stuff ###############################################################
-species_cols <- df_raw |> 
-  select(ends_with("_bb")) |> 
-  names() |> 
-  str_remove("_bb$") |> 
-  keep(~ .x %in% names(df_raw))  # only keep if taxon column actually exists
-
-# Then run the mismatch check as before
-mismatches <- map_dfr(species_cols, function(sp) {
-  df_raw |> 
-    filter(!is.na(.data[[sp]]) & .data[[sp]] != "" & 
-             is.na(.data[[paste0(sp, "_bb")]])) |> 
-    mutate(species = sp, 
-           taxon_value = .data[[sp]],
-           bb_value = .data[[paste0(sp, "_bb")]]) |> 
-    select(rowid, species, taxon_value, bb_value)
-})
-
-mismatches
-
-n_taxa <- df_raw |>
-  select(matches("^taxon_\\d+$")) |>
-  ncol()
-
-df <- map(seq_len(n_taxa), \(number) {
-  taxon_col  <- sym(paste0("taxon_", number))
-  height_col <- sym(paste0("taxon_", number, "_height"))
-  bb_col     <- sym(paste0("taxon_", number, "_bb"))
-  
-  df_raw |>
-    select(1:31, !!taxon_col, !!height_col, !!bb_col, 74:78) |>
-    mutate(position = paste0("taxon_", number)) |>
-    rename(taxon  = !!taxon_col,
-           height = !!height_col,
-           bb     = !!bb_col)
-}) |>
-  list_rbind()
-
-df <- df |> 
-  mutate(taxon = as.factor(taxon))
-
-generate_dataframe <- function(number) {
-  taxon_col <- sym(paste0("taxon_", number))
-  height_col <- sym(paste0("taxon_", number, "_height"))
-  bb_col <- sym(paste0("taxon_", number, "_bb"))
-  
-  df_raw %>%
-    select(1:31, !!taxon_col, !!height_col, !!bb_col, 74:78) %>%
-    mutate(rowid = row_number(),
-           position = paste0("taxon_", number)) %>%
-    rename(taxon = !!taxon_col,
-           height = !!height_col,
-           bb = !!bb_col)
-}
-
-taxon_list <- lapply(1:14, generate_dataframe)
-
-pivot <- bind_rows(taxon_list) %>% 
-  mutate(veg_mean_height = rowMeans(select(.,veg_height_n,veg_height_s,veg_height_e,veg_height_w)))%>%
-  filter(!is.na(taxon))
