@@ -1,6 +1,7 @@
 #### packages ####
 
 library(tidyverse)
+library(vegan)
 library(janitor)
 
 #### functions ####
@@ -41,18 +42,15 @@ df_raw <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPla
 
 df_cover <- df_raw |> 
  mutate(across(ends_with("_bb"), bb_to_cover)) |> 
-  mutate(total_cover = rowSums(across(ends_with("_bb")), na.rm = TRUE))
-
-summary(df_raw)
+  mutate(total_cover = rowSums(across(ends_with("_bb")), na.rm = TRUE),
+         richness = rowSums(across(ends_with("_bb")) > 0, na.rm = TRUE))
   
-unique(df_raw$bare_ground_bb)
-
-#  select(-object_id,-global_id,-creation_date, -creator, -edit_date,-editor,-date,-starts_with("time_"),-veg_height_n, -veg_height_e, -veg_height_s, -veg_height_w, -starts_with("soil_"),-x17)
 
 abiotic_plot <- df_cover |> 
-  select(plot_name , veg_height_ave, bare_ground_bb, x, y, total_cover)
+  dplyr::select(plot_name , veg_height_ave, bare_ground_bb, x, y, total_cover, richness, shannon)
   
 summary(abiotic_plot)
+
 
 species_cols <- df_raw |> 
   select(ends_with("_bb")) |> 
