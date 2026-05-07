@@ -93,9 +93,26 @@ species_long <- species_long |>
       species_name == "Scirpis caespitosus" ~ "Scirpus caespitosus",
       TRUE ~ species_name
     )
+  ) |> 
+  group_by(plot_name, species_name) |>
+  slice_max(cover, n = 1, with_ties = FALSE) |>
+  ungroup()
+
+species_long |> 
+  count(plot_name, species_name) |> 
+  filter(n > 1)
+
+species_matrix <- species_long |>
+  select(plot_name, species_name, cover) |>
+  pivot_wider(
+    names_from = species_name,
+    values_from = cover,
+    values_fill = 0
   )
 
-df_cover <- df_cover |>
+sp_cols <- species_matrix |> select(-plot_name)
+
+abiotic_plot <- abiotic_plot |>
   left_join(species_matrix |> select(plot_name), by = "plot_name") |>
   mutate(
     richness = rowSums(sp_cols > 0),
