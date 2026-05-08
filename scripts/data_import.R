@@ -166,3 +166,19 @@ abiotic_plot |>
   select(plot_name, ndvi) |> 
   summary()
 
+#### importing elevation ############################################################
+
+dem <- rast("data/elevation_arcticdem-30_32622.tif") |> 
+  crop(twi)
+
+plot(dem)
+summary(dem)
+print(dem)
+
+abiotic_plot <- abiotic_plot |>
+  mutate(elevation = extract(dem, plots_sf)[, 2])
+
+abiotic_plot |> 
+  select(plot_name, elevation) |> 
+  summary()
+
