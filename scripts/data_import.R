@@ -5,6 +5,8 @@ library(vegan)
 library(janitor)
 library(terra)
 library(sf)
+library(whitebox) # to calculate twi
+whitebox::install_whitebox()  # installs the WhiteboxTools binary
 
 #### functions #################################################################
 bb_to_cover <- function(x) {
@@ -149,21 +151,6 @@ aoi <- plots_sf |>
   vect()  # convert to terra format for cropping
 
 
-#### importing twi #########################################################
-
-twi <- rast("data/twi_arctic_dem_32622.tif") |> 
-  crop(aoi)
-
-plot(twi)
-summary(twi)
-print(twi)
-
-abiotic_plot <- abiotic_plot |>
-  mutate(twi = extract(twi, plots_sf)[, 2])
-
-abiotic_plot |> 
-  select(plot_name, twi) |> 
-  summary()
 
 #### importing ndvi ############################################################
 
@@ -222,6 +209,28 @@ abiotic_plot <- abiotic_plot |>
 abiotic_plot |> 
   select(plot_name, aspect_raw, aspect_sin, aspect_cos) |> 
   summary()
+#### calculating twi #########################################################
+
+writeRaster(dem_rast, "data/dem_crop.tif", overwrite = TRUE)
+
+wbt_fill_depressions("data/dem_crop.tif", "data/dem_filled.tif")
+wbt_d8_flow_accumulation("data/dem_filled.tif", "data/sca.tif")
+wbt_slope("data/dem_filled.tif", "data/slope_wb.tif", units = "degrees")
+wbt_wetness_index(
+  sca = "data/sca.tif",
+  slope = "data/slope_wb.tif",
+  output = "data/twi_calculated.tif"
+)
+
+twi_rast <- rast("data/twi_calculated.tif")
+
+abiotic_plot <- abiotic_plot |>
+  mutate(twi = extract(twi_rast, plots_sf)[, 2])
+
+abiotic_plot |> 
+  select(plot_name, twi) |> 
+  summary()
+
 
 #### checking the nas ##########################################################
 
