@@ -153,3 +153,16 @@ abiotic_plot |>
   summary()
 
 #### importing ndvi ############################################################
+
+ndvi <- rast("data/ndvi_20190615_32622.tif")
+plot(ndvi)
+summary(ndvi)
+print(ndvi)
+
+abiotic_plot <- abiotic_plot |>
+  mutate(ndvi = extract(ndvi, plots_sf)[, 2])
+
+abiotic_plot |> 
+  select(plot_name, ndvi) |> 
+  summary()
+
