@@ -4,6 +4,7 @@ library(tidyverse)
 library(vegan)
 library(janitor)
 library(terra)
+library(sf)
 
 #### functions #################################################################
 bb_to_cover <- function(x) {
@@ -133,3 +134,22 @@ species_frequency <- species_matrix |>
 
 print(species_frequency, n = Inf)
 
+#### importing twi #########################################################
+
+twi <- rast("data/twi_arctic_dem_32622.tif")
+plot(twi)
+summary(twi)
+print(twi)
+
+plots_sf <- abiotic_plot |>
+  st_as_sf(coords = c("x", "y"), crs = 4326) |>
+  st_transform(32622)
+
+abiotic_plot <- abiotic_plot |>
+  mutate(twi = extract(twi, plots_sf)[, 2])
+
+abiotic_plot |> 
+  select(plot_name, twi) |> 
+  summary()
+
+#### importing ndvi ############################################################
