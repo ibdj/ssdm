@@ -3,6 +3,7 @@
 library(tidyverse)
 library(vegan)
 library(janitor)
+library(terra)
 
 #### functions #################################################################
 bb_to_cover <- function(x) {
