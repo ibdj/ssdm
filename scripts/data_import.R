@@ -163,13 +163,15 @@ abiotic_plot |>
 
 #### importing ndvi ############################################################
 
-ndvi <- rast("data/ndvi_20190615_32622.tif")
+ndvi <- rast("data/ndvi_export_2025.tif") |> 
+  crop(aoi)
 plot(ndvi)
 summary(ndvi)
 print(ndvi)
 
 abiotic_plot <- abiotic_plot |>
-  mutate(ndvi = extract(ndvi, plots_sf)[, 2])
+  select(-ndvi) |>  # drop old ndvi column first
+  mutate(ndvi = terra::extract(ndvi, plots_sf)[, 2])
 
 abiotic_plot |> 
   select(plot_name, ndvi) |> 
@@ -178,7 +180,7 @@ abiotic_plot |>
 #### importing elevation ############################################################
 
 dem <- rast("data/elevation_arcticdem-30_32622.tif") |> 
-  crop(twi)
+  crop(aoi)
 
 plot(dem)
 summary(dem)
@@ -215,3 +217,4 @@ abiotic_plot <- abiotic_plot |>
 abiotic_plot |> 
   select(plot_name, aspect_raw, aspect_sin, aspect_cos) |> 
   summary()
+
