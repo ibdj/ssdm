@@ -182,3 +182,12 @@ abiotic_plot |>
   select(plot_name, elevation) |> 
   summary()
 
+#### slope #####################################################################
+slope <- terrain(dem, v = "slope", unit = "degrees")
+
+abiotic_plot <- abiotic_plot |>
+  mutate(slope = extract(slope, plots_sf)[, 2])
+
+abiotic_plot |> 
+  select(plot_name, slope) |> 
+  summary()
