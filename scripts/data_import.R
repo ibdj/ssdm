@@ -35,6 +35,7 @@ tms <- readRDS("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/
 
 samples_qgis <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/samples_qgis.csv") |> 
   select(plot, X,Y,elevation, ndvi, ndwi) |> 
+  mutate(plot_name = plot) |> 
   left_join(tms, by = "plot_name")
 
 names(samples_qgis)
@@ -117,8 +118,9 @@ abiotic_plot <- df_cover |>
 #### final abiotic df###########################################################
 
 abiotic_plot <- abiotic_plot |> 
-  select(-plot, plot_name, veg_height_ave, bare_ground_bb, x, y, total_cover, richness, shannon, soil_moi_ave, soil_tem_ave) |> 
-  left_join(tms, by = "plot_name")
+  select(plot_name, veg_height_ave, bare_ground_bb, x, y, total_cover, richness, shannon, soil_moi_ave, soil_tem_ave) |> 
+  left_join(tms, by = "plot_name") |> 
+  select(-plot)
   
 summary(abiotic_plot)
 
@@ -149,7 +151,9 @@ aoi <- plots_sf |>
 
 #### importing twi #########################################################
 
-twi <- rast("data/twi_arctic_dem_32622.tif")
+twi <- rast("data/twi_arctic_dem_32622.tif") |> 
+  crop(aoi)
+
 plot(twi)
 summary(twi)
 print(twi)
@@ -163,15 +167,16 @@ abiotic_plot |>
 
 #### importing ndvi ############################################################
 
-ndvi <- rast("data/ndvi_export_2025.tif") |> 
+ndvi_rast <- rast("data/ndvi_export_2025.tif") |> 
   crop(aoi)
-plot(ndvi)
-summary(ndvi)
-print(ndvi)
+
+plot(ndvi_rast)
+summary(ndvi_rast)
+print(ndvi_rast)
 
 abiotic_plot <- abiotic_plot |>
-  select(-ndvi) |>  # drop old ndvi column first
-  mutate(ndvi = terra::extract(ndvi, plots_sf)[, 2])
+#  select(-"ndvi") |>
+  mutate(ndvi = terra::extract(ndvi_rast, plots_sf)[, 2])
 
 abiotic_plot |> 
   select(plot_name, ndvi) |> 
@@ -179,25 +184,25 @@ abiotic_plot |>
 
 #### importing elevation ############################################################
 
-dem <- rast("data/elevation_arcticdem-30_32622.tif") |> 
+dem_rast <- rast("data/elevation_arcticdem-30_32622.tif") |> 
   crop(aoi)
 
-plot(dem)
-summary(dem)
-print(dem)
+plot(dem_rast)
+summary(dem_rast)
+print(dem_rast)
 
 abiotic_plot <- abiotic_plot |>
-  mutate(elevation = extract(dem, plots_sf)[, 2])
+  mutate(elevation = extract(dem_rast, plots_sf)[, 2])
 
 abiotic_plot |> 
   select(plot_name, elevation) |> 
   summary()
 
 #### slope #####################################################################
-slope <- terrain(dem, v = "slope", unit = "degrees")
+slope_rast <- terrain(dem_rast, v = "slope", unit = "degrees")
 
 abiotic_plot <- abiotic_plot |>
-  mutate(slope = extract(slope, plots_sf)[, 2])
+  mutate(slope = extract(slope_rast, plots_sf)[, 2])
 
 abiotic_plot |> 
   select(plot_name, slope) |> 
@@ -205,11 +210,11 @@ abiotic_plot |>
 
 #### aspect ####################################################################
 
-aspect <- terrain(dem, v = "aspect", unit = "degrees")
+aspect_rast <- terrain(dem_rast, v = "aspect", unit = "degrees")
 
 abiotic_plot <- abiotic_plot |>
   mutate(
-    aspect_raw = extract(aspect, plots_sf)[, 2],
+    aspect_raw = extract(aspect_rast, plots_sf)[, 2],
     aspect_sin = sin(aspect_raw * pi / 180),
     aspect_cos = cos(aspect_raw * pi / 180)
   )
@@ -218,3 +223,10 @@ abiotic_plot |>
   select(plot_name, aspect_raw, aspect_sin, aspect_cos) |> 
   summary()
 
+#### checking the nas ##########################################################
+
+abiotic_plot |> 
+  filter(is.na(elevation) | is.na(slope) | is.na(aspect_raw)) |> 
+  select(plot_name, x, y, elevation, slope, aspect_raw, twi, ndvi)
+
+summary(abiotic_plot)
