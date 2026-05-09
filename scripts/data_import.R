@@ -9,6 +9,8 @@ library(whitebox) # to calculate twi
 whitebox::install_whitebox()  # installs the WhiteboxTools binary
 library(readxl)
 library(gstat)
+devtools::install_github('cjcarlson/embarcadero') #sdm also for interpolation
+library(embarcadero)
 
 #### functions #################################################################
 bb_to_cover <- function(x) {
