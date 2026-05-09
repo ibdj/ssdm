@@ -393,3 +393,59 @@ temp_rast_masked <- mask(temp_rast, ndvi_rast < 0.1, maskvalue = TRUE)
 plot(temp_rast_masked)
 writeRaster(temp_rast_masked, "data/temp_predicted_rast.tif", overwrite = TRUE)
 
+#### moisture interpolation ####################################################
+
+moisture_sf <- abiotic_plot |>
+  filter(!is.na(soil_moi_ave)) |>
+  st_as_sf(coords = c("x", "y"), crs = 4326) |>
+  st_transform(32622)
+
+vgm_moist <- variogram(soil_moi_ave ~ 1, data = moisture_sf)
+plot(vgm_moist)
+vgm_moist_fit <- fit.variogram(vgm_moist, 
+                               model = vgm(psill = 300, 
+                                           model = "Sph", 
+                                           range = 800, 
+                                           nugget = 150))
+plot(vgm_moist, vgm_moist_fit)
+
+# Create prediction grid from raster extent
+pred_grid <- as.points(ndvi_rast) |>
+  st_as_sf() |>
+  st_transform(32622)
+
+# Run ordinary kriging
+moist_krige <- krige(
+  formula = soil_moi_ave ~ 1,
+  locations = moisture_sf,
+  newdata = pred_grid,
+  model = vgm_moist_fit
+)
+
+# Check what moist_krige looks like
+class(moist_krige)
+head(moist_krige)
+nrow(moist_krige)
+summary(moist_krige$var1.pred)
+
+# Extract coordinates and predictions
+moist_df <- st_coordinates(moist_krige) |>
+  as.data.frame() |>
+  mutate(moisture = moist_krige$var1.pred)
+
+# Convert to raster
+moist_rast <- rast(moist_df, type = "xyz", crs = crs(ndvi_rast))
+
+# # Check
+print(moist_rast)
+summary(moist_rast)
+plot(moist_rast)
+
+# Mask water bodies same as temperature
+moist_rast_masked <- mask(moist_rast, ndvi_rast < 0.1, maskvalue = TRUE)
+
+plot(moist_rast_masked)
+
+# Simple regression on NDVI first
+moist_lm4 <- lm(soil_moi_ave ~ ndvi + twi + elevation, data = abiotic_plot)
+summary(moist_lm4)
