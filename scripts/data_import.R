@@ -451,3 +451,79 @@ plot(moist_rast_masked)
 # Simple regression on NDVI first
 moist_lm4 <- lm(soil_moi_ave ~ ndvi + twi + elevation, data = abiotic_plot)
 summary(moist_lm4)
+
+# Prepare data - use all available predictors
+moist_bart <- bart(
+  x.train = abiotic_plot |> 
+    dplyr::select(ndvi, twi, elevation, slope, aspect_sin, aspect_cos) |>
+    as.data.frame(),
+  y.train = abiotic_plot$soil_moi_ave,
+  keeptrees = TRUE
+)
+
+summary(moist_bart)
+
+#### BART ####
+
+predictors <- c("elevation", "slope", "aspect_sin", "aspect_cos", 
+                "twi", "ndvi", "soil_tem_ave")
+
+plot_predictors <- abiotic_plot |>
+  dplyr::select(all_of(predictors), plot_name)
+
+modelable_species <- species_frequency |>
+  filter(n_plots >= 10) |>
+  pull(species)
+
+modelable_species
+
+# Create binary presence/absence for modelable species only
+pa_matrix <- species_matrix |>
+  dplyr::select(plot_name, all_of(modelable_species)) |>
+  mutate(across(-plot_name, ~ as.integer(. > 0))) |>
+  left_join(plot_predictors, by = "plot_name")
+
+glimpse(pa_matrix)
+
+pa_matrix <- pa_matrix |>
+  mutate(temp_predicted = terra::extract(temp_rast_masked, plots_sf)[, 2]) |>
+  dplyr::select(-soil_tem_ave)
+
+pa_matrix |>
+  dplyr::select(elevation, slope, aspect_sin, aspect_cos, twi, ndvi, temp_predicted) |>
+  summarise(across(everything(), ~sum(is.na(.x)))) |>
+  pivot_longer(everything(), names_to = "variable", values_to = "n_na") |>
+  filter(n_na > 0)
+
+### BART loop #################
+
+# Define predictor names
+pred_names <- c("elevation", "slope", "aspect_sin", "aspect_cos", 
+                "twi", "ndvi", "temp_predicted")
+
+# Prepare predictor dataframe
+x_train <- pa_matrix |>
+  dplyr::select(all_of(pred_names)) |>
+  as.data.frame()
+
+# Run BART SDM for each species and store results
+bart_models <- list()
+
+for(sp in modelable_species) {
+  cat("Fitting BART for:", sp, "\n")
+  
+  y_train <- pa_matrix[[sp]]
+  
+  bart_models[[sp]] <- bart(
+    x.train = x_train,
+    y.train = y_train,
+    keeptrees = TRUE
+  )
+}
+
+names(bart_models)
+length(bart_models)
+
+#checking what specis is missing
+
+modelable_species[!modelable_species %in% names(bart_models)]
