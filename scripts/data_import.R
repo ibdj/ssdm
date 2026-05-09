@@ -252,7 +252,8 @@ abiotic_plot |>
 
 #### aspect ####################################################################
 
-aspect_rast <- terrain(dem_rast, v = "aspect", unit = "degrees")
+aspect_rast <- terrain(dem_rast, v = "aspect", unit = "degrees") |> 
+  crop(aoi)
 
 abiotic_plot <- abiotic_plot |>
   mutate(
@@ -264,6 +265,11 @@ abiotic_plot <- abiotic_plot |>
 abiotic_plot |> 
   select(plot_name, aspect_raw, aspect_sin, aspect_cos) |> 
   summary()
+
+aspect_cos_rast <- cos(aspect_rast * pi / 180) |> 
+  crop(aoi)
+aspect_sin_rast <- sin(aspect_rast * pi / 180) |> 
+  crop(aoi)
 #### calculating twi #########################################################
 
 writeRaster(dem_rast, "data/dem_crop.tif", overwrite = TRUE)
@@ -342,4 +348,48 @@ abiotic_plot |>
 
 #This will tell if the logger-based values show cleaner relationships with topography than the point measurements.
 
+##### temperature interpolation ###########################################
+
+# Step 1: fit linear model on combined logger data
+temp_lm <- lm(temp_mean_tms ~ ndvi + aspect_cos + aspect_sin + slope, 
+              data = tms_combined)
+
+summary(temp_lm2)
+
+temp_lm2 <- lm(temp_mean_tms ~ ndvi + aspect_cos + aspect_sin, 
+              data = tms_combined)
+
+summary
+
+# Add residuals to combined logger data
+ tms_combined <- tms_combined |>
+  mutate(temp_resid = residuals(temp_lm2))
+
+# Convert to sf for variogram
+tms_combined_sf <- tms_combined |>
+  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) |>
+  st_transform(32622)
+
+# Compute variogram of residuals
+vgm_temp <- variogram(temp_resid ~ 1, data = tms_combined_sf)
+plot(vgm_temp)
+
+# Resample aspect layers to match ndvi resolution and extent
+aspect_cos_rast <- resample(aspect_cos_rast, ndvi_rast)
+aspect_sin_rast <- resample(aspect_sin_rast, ndvi_rast)
+
+# Now stack
+pred_stack <- c(ndvi_rast, aspect_cos_rast, aspect_sin_rast)
+names(pred_stack) <- c("ndvi", "aspect_cos", "aspect_sin")
+
+# Project
+temp_rast <- predict(pred_stack, temp_lm2)
+plot(temp_rast)
+
+writeRaster(temp_rast, "data/temp_predicted_rast.tif", overwrite = TRUE)
+
+temp_rast_masked <- mask(temp_rast, ndvi_rast < 0.1, maskvalue = TRUE)
+
+plot(temp_rast_masked)
+writeRaster(temp_rast_masked, "data/temp_predicted_rast.tif", overwrite = TRUE)
 
