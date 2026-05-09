@@ -7,6 +7,7 @@ library(terra)
 library(sf)
 library(whitebox) # to calculate twi
 whitebox::install_whitebox()  # installs the WhiteboxTools binary
+library(readxl)
 
 #### functions #################################################################
 bb_to_cover <- function(x) {
@@ -27,13 +28,40 @@ bb_to_cover <- function(x) {
 #### loading the data ##########################################################
 
 tms <- readRDS("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/tms_pivot.rds") |> 
-  clean_names() |> 
+  clean_names()
+
+  filter(level == "t1_below6cm") |>          # soil temperature only
+  filter(month(Date) %in% c(6, 7, 8)) |>  # June-August         # June-August
   group_by(plot) |> 
-  reframe(temp_mean_tms = mean(temp),
-          mean_soilmoisture_tms = mean(moisture_data_raw)) |> 
-  mutate(plot_name = toupper(plot)) |> 
-  mutate(vwc_tms = (mean_soilmoisture_tms - min(mean_soilmoisture_tms)) / 
-           (max(mean_soilmoisture_tms) - min(mean_soilmoisture_tms)) * 100)
+  reframe(
+    temp_mean_tms = mean(temp, na.rm = TRUE),
+    mean_soilmoisture_tms = mean(moisture_data_raw, na.rm = TRUE)
+  ) |> 
+  mutate(
+    plot_name = toupper(plot),
+    vwc_tms = (mean_soilmoisture_tms - min(mean_soilmoisture_tms)) / 
+      (max(mean_soilmoisture_tms) - min(mean_soilmoisture_tms)) * 100
+  )
+
+summary(tms)
+
+BioBasis_Nuuk_PhenologyPlots_Microclimate_2025 <- read_excel("~/Library/CloudStorage/OneDrive-GrønlandsNaturinstitut/General - BioBasis/03_GEM_Database/Datafiler excel/BioBasis_Nuuk_PhenologyPlots_Microclimate_2025.xlsx")
+BioBasis_Nuuk_CFlux_Microclimate_2025 <- read_excel("~/Library/CloudStorage/OneDrive-GrønlandsNaturinstitut/General - BioBasis/03_GEM_Database/Datafiler excel/BioBasis_Nuuk_CFlux_Microclimate_2025.xlsx")
+
+tms_biobasis <- BioBasis_Nuuk_CFlux_Microclimate_2025 |> 
+  bind_rows(BioBasis_Nuuk_PhenologyPlots_Microclimate_2025) |> 
+  filter(month(Date) %in% c(6, 7, 8)) |>  # June-August
+  group_by(Plot, Latitude, Longitude) |>
+  reframe(
+    temp_mean_tms = mean(Temp_6cmbel, na.rm = TRUE),
+    mean_soilmoisture_tms = mean(Raw_soil_moisture, na.rm = TRUE)
+  ) |>
+  mutate(
+    vwc_tms = (mean_soilmoisture_tms - min(mean_soilmoisture_tms)) / 
+      (max(mean_soilmoisture_tms) - min(mean_soilmoisture_tms)) * 100
+  )
+
+summary(tms_biobasis)
 
 samples_qgis <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/samples_qgis.csv") |> 
   select(plot, X,Y,elevation, ndvi, ndwi) |> 
@@ -239,3 +267,30 @@ abiotic_plot |>
   select(plot_name, x, y, elevation, slope, aspect_raw, twi, ndvi)
 
 summary(abiotic_plot)
+
+#### writing all data files ####################################################
+saveRDS(abiotic_plot, "data/abiotic_plot.rds")
+saveRDS(species_matrix, "data/species_matrix.rds")
+saveRDS(species_long, "data/species_long.rds")
+writeRaster(dem_rast, "data/dem_crop.tif", overwrite = TRUE)
+writeRaster(twi_rast, "data/twi_calculated.tif", overwrite = TRUE)
+writeRaster(ndvi_rast, "data/ndvi_crop.tif", overwrite = TRUE)
+writeRaster(slope_rast, "data/slope_crop.tif", overwrite = TRUE)
+writeRaster(aspect_rast, "data/aspect_crop.tif", overwrite = TRUE)
+
+##### interpolation ############################################################
+
+#testing for correlation
+abiotic_plot |>
+  select(soil_tem_ave, soil_moi_ave, elevation, slope, twi, ndvi, aspect_sin, aspect_cos) |>
+  cor(use = "complete.obs") |>
+  round(2)
+
+abiotic_plot |>
+  select(temp_mean_tms, vwc_tms, elevation, slope, twi, ndvi, aspect_sin, aspect_cos) |>
+  cor(use = "complete.obs") |>
+  round(2)
+
+#This will tell if the logger-based values show cleaner relationships with topography than the point measurements.
+
+
