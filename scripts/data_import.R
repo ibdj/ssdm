@@ -11,6 +11,7 @@ library(readxl)
 library(gstat)
 devtools::install_github('cjcarlson/embarcadero') #sdm also for interpolation
 library(embarcadero)
+library(pROC)
 
 #### functions #################################################################
 bb_to_cover <- function(x) {
@@ -527,3 +528,5 @@ length(bart_models)
 #checking what specis is missing
 
 modelable_species[!modelable_species %in% names(bart_models)]
+##### diagnostics ####
+
