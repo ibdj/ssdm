@@ -8,6 +8,7 @@ library(sf)
 library(whitebox) # to calculate twi
 whitebox::install_whitebox()  # installs the WhiteboxTools binary
 library(readxl)
+library(gstat)
 
 #### functions #################################################################
 bb_to_cover <- function(x) {
@@ -79,6 +80,32 @@ df_cover <- df_raw |>
   mutate(total_cover = rowSums(across(ends_with("_bb")), na.rm = TRUE))
 
 summary(df_cover)
+
+#### cobining all tms ##########################################################
+
+# Extract TMS logger plots with coordinates from abiotic_plot
+tms_own <- abiotic_plot |>
+  filter(!is.na(temp_mean_tms)) |>
+  select(plot_name, x, y, temp_mean_tms, mean_soilmoisture_tms) |>
+  rename(Longitude = x, Latitude = y)
+
+# Bind and normalise vwc together
+tms_combined <- bind_rows(tms_own, tms_biobasis) |>
+  mutate(
+    vwc_tms = (mean_soilmoisture_tms - min(mean_soilmoisture_tms)) / 
+      (max(mean_soilmoisture_tms) - min(mean_soilmoisture_tms)) * 100
+  )
+
+summary(tms_combined)
+
+nrow(tms_combined)
+
+tms_combined_sf <- tms_combined |>
+  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) |>
+  st_transform(32622)
+
+plot(ndvi_rast)
+plot(st_geometry(tms_combined_sf), add = TRUE, pch = 16, col = "red", cex = 0.8)
 
 #### species matrix ############################################################
 
@@ -279,6 +306,28 @@ writeRaster(slope_rast, "data/slope_crop.tif", overwrite = TRUE)
 writeRaster(aspect_rast, "data/aspect_crop.tif", overwrite = TRUE)
 
 ##### interpolation ############################################################
+
+tms_combined_sf <- tms_combined |>
+  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) |>
+  st_transform(32622)
+
+tms_combined <- tms_combined |>
+  mutate(
+    elevation = terra::extract(dem_rast, tms_combined_sf)[, 2],
+    slope = terra::extract(slope_rast, tms_combined_sf)[, 2],
+    aspect_raw = terra::extract(aspect_rast, tms_combined_sf)[, 2],
+    aspect_sin = sin(aspect_raw * pi / 180),
+    aspect_cos = cos(aspect_raw * pi / 180),
+    twi = terra::extract(twi_rast, tms_combined_sf)[, 2],
+    ndvi = terra::extract(ndvi_rast, tms_combined_sf)[, 2]
+  )
+
+# Recheck correlations
+tms_combined |>
+  select(temp_mean_tms, vwc_tms, elevation, slope, twi, ndvi, aspect_sin, aspect_cos) |>
+  cor(use = "complete.obs") |>
+  round(2)
+
 
 #testing for correlation
 abiotic_plot |>
