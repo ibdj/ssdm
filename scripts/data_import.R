@@ -641,3 +641,38 @@ for(sp in modelable_species) {
   filename <- paste0("data/sdm_", gsub(" ", "_", sp), ".tif")
   writeRaster(species_rasts[[sp]], filename, overwrite = TRUE)
 }
+
+#### diagnostics ####################################################
+
+cv_results <- cv_auc
+
+diagnostics <- map_dfr(modelable_species, function(sp) {
+  
+  # Training predictions
+  predicted_train <- colMeans(pnorm(bart_models[[sp]]$yhat.train))
+  observed <- pa_matrix[[sp]]
+  
+  # Training AUC
+  train_auc <- auc(roc(observed, predicted_train, quiet = TRUE)) |> as.numeric()
+  
+  # Prevalence
+  prevalence <- mean(observed)
+  
+  # TSS at optimal threshold
+  roc_obj <- roc(observed, predicted_train, quiet = TRUE)
+  best_thresh <- coords(roc_obj, "best", ret = c("threshold", "sensitivity", "specificity"))
+  tss <- best_thresh$sensitivity + best_thresh$specificity - 1
+  
+  tibble(
+    species = sp,
+    n_presences = sum(observed),
+    prevalence = round(prevalence, 2),
+    train_auc = round(train_auc, 3),
+    cv_auc = round(cv_results$cv_auc[cv_results$species == sp], 3),
+    cv_auc_sd = round(cv_results$sd_auc[cv_results$species == sp], 3),
+    tss = round(tss, 3)
+  )
+}) |>
+  arrange(desc(cv_auc))
+
+print(diagnostics, n = Inf)
