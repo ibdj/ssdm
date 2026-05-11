@@ -12,6 +12,8 @@ library(gstat)
 devtools::install_github('cjcarlson/embarcadero') #sdm also for interpolation
 library(embarcadero)
 library(pROC)
+library(dbarts)
+library(raster)
 
 #### functions #################################################################
 bb_to_cover <- function(x) {
@@ -530,3 +532,112 @@ length(bart_models)
 modelable_species[!modelable_species %in% names(bart_models)]
 ##### diagnostics ####
 
+auc_results <- map_dfr(modelable_species, function(sp) {
+  predicted <- pnorm(colMeans(bart_models[[sp]]$yhat.train))
+  observed <- pa_matrix[[sp]]
+  
+  auc_val <- auc(roc(observed, predicted, quiet = TRUE))
+  
+  tibble(
+    species = sp,
+    n_plots = sum(observed),
+    auc = round(as.numeric(auc_val), 3)
+  )
+}) |>
+  arrange(desc(auc))
+
+print(auc_results, n = Inf)
+
+##### 5 fold validation ########################################################
+
+cv_auc <- map_dfr(modelable_species, function(sp) {
+  y <- pa_matrix[[sp]]
+  folds <- sample(rep(1:5, length.out = 100))
+  
+  fold_auc <- map_dbl(1:5, function(k) {
+    train_idx <- folds != k
+    test_idx <- folds == k
+    
+    cv_model <- bart(
+      x.train = x_train[train_idx, ],
+      y.train = y[train_idx],
+      x.test = x_train[test_idx, ],
+      keeptrees = FALSE
+    )
+    
+    pred <- pnorm(colMeans(cv_model$yhat.test))
+    auc(roc(y[test_idx], pred, quiet = TRUE)) |> as.numeric()
+  })
+  
+  tibble(species = sp, cv_auc = mean(fold_auc), sd_auc = sd(fold_auc))
+}) |>
+  arrange(desc(cv_auc))
+
+print(cv_auc, n = Inf)
+
+#### spacially explicit ###
+
+# Resample all rasters to match ndvi_rast (10m reference)
+elev_resamp <- resample(dem_rast, ndvi_rast)
+slope_resamp <- resample(slope_rast, ndvi_rast)
+aspect_sin_resamp <- resample(aspect_sin_rast, ndvi_rast)
+aspect_cos_resamp <- resample(aspect_cos_rast, ndvi_rast)
+twi_resamp <- resample(twi_rast, ndvi_rast)
+temp_resamp <- resample(temp_rast_masked, ndvi_rast)
+
+# Stack all predictors
+pred_rast_stack <- c(elev_resamp, slope_resamp, aspect_sin_resamp, 
+                     aspect_cos_resamp, twi_resamp, ndvi_rast, temp_resamp)
+
+# Name layers to match predictor names in BART models
+names(pred_rast_stack) <- c("elevation", "slope", "aspect_sin", "aspect_cos",
+                            "twi", "ndvi", "temp_predicted")
+
+print(pred_rast_stack)
+plot(pred_rast_stack)
+
+# Convert raster stack to dataframe for prediction
+pred_df <- as.data.frame(pred_rast_stack, xy = TRUE, na.rm = FALSE)
+
+# Get just the predictor columns
+pred_only <- pred_df |>
+  dplyr::select(all_of(pred_names)) |>
+  as.data.frame()
+
+
+pred_rast_stack_r <- raster::stack(pred_rast_stack)
+
+# Test prediction
+test_pred <- embarcadero:::predict2.bart(bart_models[["Coptis trifolia"]], 
+                                         x.layers = pred_rast_stack_r)
+dim(test_pred)
+
+test_rast <- rast(test_pred[,,1], 
+                  extent = ext(ndvi_rast),
+                  crs = crs(ndvi_rast))
+
+plot(test_rast)
+summary(test_rast)
+
+##### testing loop
+
+species_rasts <- list()
+
+for(sp in modelable_species) {
+  cat("Projecting:", sp, "\n")
+  
+  pred_vals <- embarcadero:::predict2.bart(bart_models[[sp]], 
+                                           x.layers = pred_rast_stack_r)
+  
+  # Convert to terra rast using first layer as template
+  sp_rast_r <- raster::raster(pred_rast_stack_r[[1]])
+  raster::values(sp_rast_r) <- pred_vals[[1]][]
+  
+  species_rasts[[sp]] <- rast(sp_rast_r)
+}
+
+# Save all species rasters
+for(sp in modelable_species) {
+  filename <- paste0("data/sdm_", gsub(" ", "_", sp), ".tif")
+  writeRaster(species_rasts[[sp]], filename, overwrite = TRUE)
+}
