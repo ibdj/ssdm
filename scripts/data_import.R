@@ -34,10 +34,9 @@ bb_to_cover <- function(x) {
 #### loading the data ##########################################################
 
 tms <- readRDS("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/tms_pivot.rds") |> 
-  clean_names()
-
+  clean_names() |> 
   filter(level == "t1_below6cm") |>          # soil temperature only
-  filter(month(Date) %in% c(6, 7, 8)) |>  # June-August         # June-August
+  filter(month(date) %in% c(6, 7, 8)) |>  # June-August         # June-August
   group_by(plot) |> 
   reframe(
     temp_mean_tms = mean(temp, na.rm = TRUE),
@@ -70,7 +69,7 @@ tms_biobasis <- BioBasis_Nuuk_CFlux_Microclimate_2025 |>
 summary(tms_biobasis)
 
 samples_qgis <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/samples_qgis.csv") |> 
-  select(plot, X,Y,elevation, ndvi, ndwi) |> 
+  dplyr::select(plot, X,Y,elevation, ndvi, ndwi) |> 
   mutate(plot_name = plot) |> 
   left_join(tms, by = "plot_name")
 
@@ -87,12 +86,6 @@ df_cover <- df_raw |>
 summary(df_cover)
 
 #### cobining all tms ##########################################################
-
-# Extract TMS logger plots with coordinates from abiotic_plot
-tms_own <- abiotic_plot |>
-  filter(!is.na(temp_mean_tms)) |>
-  select(plot_name, x, y, temp_mean_tms, mean_soilmoisture_tms) |>
-  rename(Longitude = x, Latitude = y)
 
 # Bind and normalise vwc together
 tms_combined <- bind_rows(tms_own, tms_biobasis) |>
@@ -116,18 +109,18 @@ plot(st_geometry(tms_combined_sf), add = TRUE, pch = 16, col = "red", cex = 0.8)
 
 # Step 1: pivot just the species names to long
 taxon_names <- df_cover |>
-  select(plot_name, matches("^taxon_[0-9]+$")) |>
+  dplyr::select(plot_name, matches("^taxon_[0-9]+$")) |>
   pivot_longer(-plot_name, names_to = "slot", values_to = "species_name")
 
 # Step 2: pivot just the bb values to long
 taxon_bb <- df_cover |>
-  select(plot_name, matches("^taxon_[0-9]+_bb$")) |>
+  dplyr::select(plot_name, matches("^taxon_[0-9]+_bb$")) |>
   pivot_longer(-plot_name, names_to = "slot", values_to = "cover") |>
   mutate(slot = str_remove(slot, "_bb$"))
 
 # Step 3: pivot just the height values to long
 taxon_height <- df_cover |>
-  select(plot_name, matches("^taxon_[0-9]+_height$")) |>
+  dplyr::select(plot_name, matches("^taxon_[0-9]+_height$")) |>
   pivot_longer(-plot_name, names_to = "slot", values_to = "height") |>
   mutate(slot = str_remove(slot, "_height$"))
 
@@ -136,7 +129,7 @@ species_long <- taxon_names |>
   left_join(taxon_bb, by = c("plot_name", "slot")) |>
   left_join(taxon_height, by = c("plot_name", "slot")) |>
   filter(!is.na(species_name) & species_name != "") |> 
-  select(-slot)
+  dplyr::select(-slot)
 
 species_long |> 
   distinct(species_name) |> 
@@ -161,17 +154,17 @@ species_long |>
   filter(n > 1)
 
 species_matrix <- species_long |>
-  select(plot_name, species_name, cover) |>
+  dplyr::select(plot_name, species_name, cover) |>
   pivot_wider(
     names_from = species_name,
     values_from = cover,
     values_fill = 0
   )
 
-sp_cols <- species_matrix |> select(-plot_name)
+sp_cols <- species_matrix |> dplyr::select(-plot_name)
 
 abiotic_plot <- df_cover |>
-  left_join(species_matrix |> select(plot_name), by = "plot_name") |>
+  left_join(species_matrix |> dplyr::select(plot_name), by = "plot_name") |>
   mutate(
     richness = rowSums(sp_cols > 0),
     shannon = vegan::diversity(sp_cols, index = "shannon")
@@ -180,16 +173,22 @@ abiotic_plot <- df_cover |>
 #### final abiotic df###########################################################
 
 abiotic_plot <- abiotic_plot |> 
-  select(plot_name, veg_height_ave, bare_ground_bb, x, y, total_cover, richness, shannon, soil_moi_ave, soil_tem_ave) |> 
+  dplyr::select(plot_name, veg_height_ave, bare_ground_bb, x, y, total_cover, richness, shannon, soil_moi_ave, soil_tem_ave) |> 
   left_join(tms, by = "plot_name") |> 
-  select(-plot)
+  dplyr::select(-plot)
   
 summary(abiotic_plot)
+
+# Extract TMS logger plots with coordinates from abiotic_plot
+tms_own <-  abiotic_plot |>
+  filter(!is.na(temp_mean_tms)) |>
+  dplyr::select(plot_name, x, y, temp_mean_tms, mean_soilmoisture_tms) |>
+  rename(Longitude = x, Latitude = y)
 
 #### species frequency #########################################################
 
 species_frequency <- species_matrix |>
-  select(-plot_name) |>
+  dplyr::select(-plot_name) |>
   summarise(across(everything(), ~ sum(. > 0))) |>
   pivot_longer(everything(), 
                names_to = "species", 
@@ -226,7 +225,7 @@ abiotic_plot <- abiotic_plot |>
   mutate(ndvi = terra::extract(ndvi_rast, plots_sf)[, 2])
 
 abiotic_plot |> 
-  select(plot_name, ndvi) |> 
+  dplyr::select(plot_name, ndvi) |> 
   summary()
 
 #### importing elevation ############################################################
@@ -239,20 +238,20 @@ summary(dem_rast)
 print(dem_rast)
 
 abiotic_plot <- abiotic_plot |>
-  mutate(elevation = extract(dem_rast, plots_sf)[, 2])
+  mutate(elevation = terra::extract(dem_rast, plots_sf)[, 2])
 
 abiotic_plot |> 
-  select(plot_name, elevation) |> 
+  dplyr::select(plot_name, elevation) |> 
   summary()
 
 #### slope #####################################################################
 slope_rast <- terrain(dem_rast, v = "slope", unit = "degrees")
 
 abiotic_plot <- abiotic_plot |>
-  mutate(slope = extract(slope_rast, plots_sf)[, 2])
+  mutate(slope = terra::extract(slope_rast, plots_sf)[, 2])
 
 abiotic_plot |> 
-  select(plot_name, slope) |> 
+  dplyr::select(plot_name, slope) |> 
   summary()
 
 #### aspect ####################################################################
@@ -262,13 +261,13 @@ aspect_rast <- terrain(dem_rast, v = "aspect", unit = "degrees") |>
 
 abiotic_plot <- abiotic_plot |>
   mutate(
-    aspect_raw = extract(aspect_rast, plots_sf)[, 2],
+    aspect_raw = terra::extract(aspect_rast, plots_sf)[, 2],
     aspect_sin = sin(aspect_raw * pi / 180),
     aspect_cos = cos(aspect_raw * pi / 180)
   )
 
 abiotic_plot |> 
-  select(plot_name, aspect_raw, aspect_sin, aspect_cos) |> 
+  dplyr::select(plot_name, aspect_raw, aspect_sin, aspect_cos) |> 
   summary()
 
 aspect_cos_rast <- cos(aspect_rast * pi / 180) |> 
@@ -291,10 +290,10 @@ wbt_wetness_index(
 twi_rast <- rast("data/twi_calculated.tif")
 
 abiotic_plot <- abiotic_plot |>
-  mutate(twi = extract(twi_rast, plots_sf)[, 2])
+  mutate(twi = terra::extract(twi_rast, plots_sf)[, 2])
 
 abiotic_plot |> 
-  select(plot_name, twi) |> 
+  dplyr::select(plot_name, twi) |> 
   summary()
 
 
@@ -302,7 +301,7 @@ abiotic_plot |>
 
 abiotic_plot |> 
   filter(is.na(elevation) | is.na(slope) | is.na(aspect_raw)) |> 
-  select(plot_name, x, y, elevation, slope, aspect_raw, twi, ndvi)
+  dplyr::select(plot_name, x, y, elevation, slope, aspect_raw, twi, ndvi)
 
 summary(abiotic_plot)
 
@@ -335,19 +334,19 @@ tms_combined <- tms_combined |>
 
 # Recheck correlations
 tms_combined |>
-  select(temp_mean_tms, vwc_tms, elevation, slope, twi, ndvi, aspect_sin, aspect_cos) |>
+  dplyr::select(temp_mean_tms, vwc_tms, elevation, slope, twi, ndvi, aspect_sin, aspect_cos) |>
   cor(use = "complete.obs") |>
   round(2)
 
 
 #testing for correlation
 abiotic_plot |>
-  select(soil_tem_ave, soil_moi_ave, elevation, slope, twi, ndvi, aspect_sin, aspect_cos) |>
+  dplyr::select(soil_tem_ave, soil_moi_ave, elevation, slope, twi, ndvi, aspect_sin, aspect_cos) |>
   cor(use = "complete.obs") |>
   round(2)
 
 abiotic_plot |>
-  select(temp_mean_tms, vwc_tms, elevation, slope, twi, ndvi, aspect_sin, aspect_cos) |>
+  dplyr::select(temp_mean_tms, vwc_tms, elevation, slope, twi, ndvi, aspect_sin, aspect_cos) |>
   cor(use = "complete.obs") |>
   round(2)
 
@@ -359,12 +358,10 @@ abiotic_plot |>
 temp_lm <- lm(temp_mean_tms ~ ndvi + aspect_cos + aspect_sin + slope, 
               data = tms_combined)
 
-summary(temp_lm2)
-
 temp_lm2 <- lm(temp_mean_tms ~ ndvi + aspect_cos + aspect_sin, 
               data = tms_combined)
 
-summary
+summary(temp_lm)
 
 # Add residuals to combined logger data
  tms_combined <- tms_combined |>
@@ -550,9 +547,19 @@ print(auc_results, n = Inf)
 
 ##### 5 fold validation ########################################################
 
-cv_auc <- map_dfr(modelable_species, function(sp) {
+cv_results <- map_dfr(modelable_species, function(sp) {
   y <- pa_matrix[[sp]]
-  folds <- sample(rep(1:5, length.out = 100))
+  
+  # Stratified folds - ensure presences and absences in each fold
+  pres_idx <- which(y == 1)
+  abs_idx <- which(y == 0)
+  
+  pres_folds <- sample(rep(1:5, length.out = length(pres_idx)))
+  abs_folds <- sample(rep(1:5, length.out = length(abs_idx)))
+  
+  folds <- numeric(100)
+  folds[pres_idx] <- pres_folds
+  folds[abs_idx] <- abs_folds
   
   fold_auc <- map_dbl(1:5, function(k) {
     train_idx <- folds != k
@@ -573,7 +580,18 @@ cv_auc <- map_dfr(modelable_species, function(sp) {
 }) |>
   arrange(desc(cv_auc))
 
-print(cv_auc, n = Inf)
+print(cv_results, n = Inf)
+
+cv_results <- cv_results |>
+  mutate(assessment = case_when(
+    cv_auc >= 0.90 ~ "Excellent",
+    cv_auc >= 0.80 ~ "Good",
+    cv_auc >= 0.70 ~ "Acceptable",
+    cv_auc >= 0.60 ~ "Poor",
+    TRUE           ~ "Fail"
+  ))
+
+print(cv_results, n = Inf)
 
 #### spacially explicit ###
 
@@ -680,3 +698,77 @@ print(diagnostics, n = Inf)
 # TO DO 
 # check that AUC is on the k-fold validation data
 # check number of species where that are good
+
+learning_curve <- map_dfr(modelable_species, function(sp) {
+  y <- pa_matrix[[sp]]
+  
+  sample_sizes <- c(20, 30, 40, 50, 60, 70, 80, 90, 100)
+  
+  map_dfr(sample_sizes, function(n) {
+    aucs <- map(1:5, function(i) {
+      tryCatch({
+        # Stratified sampling to ensure both classes in train and test
+        pres_idx <- which(y == 1)
+        abs_idx <- which(y == 0)
+        
+        n_pres <- round(n * mean(y))
+        n_abs <- n - n_pres
+        
+        train_idx <- c(
+          sample(pres_idx, min(n_pres, length(pres_idx))),
+          sample(abs_idx, min(n_abs, length(abs_idx)))
+        )
+        test_idx <- setdiff(1:100, train_idx)
+        
+        # Skip if test set has only one class
+        if(length(unique(y[test_idx])) < 2) return(NULL)
+        
+        m <- bart(
+          x.train = x_train[train_idx, ],
+          y.train = y[train_idx],
+          x.test = x_train[test_idx, ],
+          keeptrees = FALSE
+        )
+        
+        pred <- pnorm(colMeans(m$yhat.test))
+        auc(roc(y[test_idx], pred, quiet = TRUE)) |> as.numeric()
+      }, error = function(e) NULL)
+    }) |> 
+      compact() |>  # remove NULLs
+      unlist()
+    
+    tibble(species = sp, n_train = n, mean_auc = mean(aucs))
+  })
+})
+
+# Plot
+ggplot(learning_curve, aes(x = n_train, y = mean_auc, colour = species)) +
+  geom_line() +
+  geom_vline(xintercept = 100, linetype = "dashed") +
+  geom_vline(xintercept = 120, linetype = "dotted", colour = "red") +
+  labs(x = "Training sample size", y = "Mean AUC",
+       title = "Learning curves") +
+  theme_minimal()
+
+varimp_results <- map_dfr(modelable_species, function(sp) {
+  varimp(bart_models[[sp]]) |>
+    mutate(species = sp)
+}) |>
+  dplyr::select(species, names, varimps) |>
+  pivot_wider(names_from = names, values_from = varimps) |>
+  arrange(species)
+
+print(varimp_results, n = Inf)
+
+varimp_long <- map_dfr(modelable_species, function(sp) {
+  varimp(bart_models[[sp]]) |>
+    mutate(species = sp)
+})
+
+ggplot(varimp_long, aes(x = names, y = species, fill = varimps)) +
+  geom_tile() +
+  scale_fill_viridis_c() +
+  labs(x = "Variable", y = "Species", fill = "Importance",
+       title = "Variable importance across BART SDMs") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
