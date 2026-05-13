@@ -679,3 +679,4 @@ print(diagnostics, n = Inf)
 
 # TO DO 
 # check that AUC is on the k-fold validation data
+# check number of species where that are good
