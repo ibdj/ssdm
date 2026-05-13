@@ -676,3 +676,6 @@ diagnostics <- map_dfr(modelable_species, function(sp) {
   arrange(desc(cv_auc))
 
 print(diagnostics, n = Inf)
+
+# TO DO 
+# check that AUC is on the k-fold validation data
