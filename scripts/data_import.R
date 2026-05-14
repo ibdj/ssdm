@@ -179,6 +179,28 @@ abiotic_plot <- abiotic_plot |>
   
 summary(abiotic_plot)
 
+# Find the plot with NA temp
+na_plot <- abiotic_plot |> 
+  filter(is.na(soil_tem_ave))
+
+# Convert to sf and extract from raster
+na_plot_sf <- na_plot |>
+  st_as_sf(coords = c("x", "y"), crs = 4326) |>
+  st_transform(32622)
+
+# Extract interpolated value
+imputed_temp <- terra::extract(temp_rast, na_plot_sf)[, 2]
+imputed_temp
+
+# Fill NA in abiotic_plot
+abiotic_plot <- abiotic_plot |>
+  mutate(temp_predicted = ifelse(is.na(soil_tem_ave), 
+                                 imputed_temp, 
+                                 soil_tem_ave))
+
+# Verify no more NAs
+sum(is.na(abiotic_plot$temp_predicted))
+
 # Extract TMS logger plots with coordinates from abiotic_plot
 tms_own <-  abiotic_plot |>
   filter(!is.na(temp_mean_tms)) |>
