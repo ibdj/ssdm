@@ -9,6 +9,9 @@ library(terra)
 library(sf)
 library(corrplot)
 library(parallel)
+library(ggplot2)
+library(corrplot)
+library(viridis)
 
 # ============================================================
 # Load data from previous script outputs
@@ -92,7 +95,7 @@ rL.spatial <- HmscRandomLevel(sData = coords)
 
 # Formula for fixed effects
 XFormula <- ~ elevation + slope + aspect_sin + aspect_cos + 
-  twi + ndvi + temp_predicted
+  twi + temp_predicted
 
 # Define model
 m <- Hmsc(
@@ -121,6 +124,7 @@ m <- sampleMcmc(m,
                 samples   = samples,
                 transient = transient,
                 nChains   = nChains,
+                nParallel = nChains,   # <-- to run in parallel
                 verbose   = 500
 )
 
@@ -136,13 +140,6 @@ summary(m)
 # HMSC Model Visualizations
 # Requires: Hmsc, ggplot2, corrplot, tidyr, dplyr, viridis
 # ============================================================
-
-library(Hmsc)
-library(ggplot2)
-library(corrplot)
-library(tidyr)
-library(dplyr)
-library(viridis)
 
 # ---- Load your saved model ----
 m <- readRDS("data/hmsc_model_pa.rds")
