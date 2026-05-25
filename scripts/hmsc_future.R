@@ -136,7 +136,7 @@ summary(m)
 
 # ==============================================================================
 
-# ============================================================
+# ==============================================================================
 # HMSC Model Visualizations
 # Requires: Hmsc, ggplot2, corrplot, tidyr, dplyr, viridis
 # ============================================================
@@ -326,11 +326,14 @@ cat("Saved: hmsc_5_omega_correlations.png\n")
 # ==============================================================
 
 postGamma <- getPostEstimate(m, parName = "Gamma")
-gamma_mean <- postGamma$mean
+gamma_mean    <- postGamma$mean
 gamma_support <- postGamma$support
 
-rownames(gamma_mean) <- m$trNames
-colnames(gamma_mean) <- m$covNames
+# Gamma is structured as [covariates × traits] in Hmsc
+rownames(gamma_mean)    <- m$covNames   # was m$trNames — wrong
+colnames(gamma_mean)    <- m$trNames    # was m$covNames — wrong
+rownames(gamma_support) <- m$covNames
+colnames(gamma_support) <- m$trNames
 
 gamma_df <- as.data.frame(gamma_mean) %>%
   rownames_to_column("trait") %>%
@@ -344,7 +347,7 @@ gamma_df$support <- gamma_support_df$support
 gamma_df$sig <- ifelse(gamma_df$support > 0.9 | gamma_df$support < 0.1, "*", "")
 
 png("hmsc_6_gamma_trait_env.png", width = 900, height = 500, res = 120)
-ggplot(gamma_df, aes(x = covariate, y = trait, fill = estimate)) +
+ggplot(gamma_df, aes(x = trait, y = covariate, fill = estimate)) +
   geom_tile(color = "white") +
   geom_text(aes(label = sig), size = 5, color = "black") +
   scale_fill_gradient2(low = "#1565C0", mid = "white", high = "#B71C1C",
@@ -365,7 +368,8 @@ cat("Saved: hmsc_6_gamma_trait_env.png\n")
 
 # Note: this is computationally intensive — reduce k for large models
 # Use partition if already computed, otherwise compute here
-partition <- createPartition(m, nfolds = 2, column = "sample")
+colnames(m$studyDesign)
+partition <- createPartition(m, nfolds = 2, column = "plot")
 preds <- computePredictedValues(m, partition = partition)
 
 MF <- evaluateModelFit(hM = m, predY = preds)
