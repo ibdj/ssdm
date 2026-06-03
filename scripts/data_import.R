@@ -232,7 +232,6 @@ aoi <- plots_sf |>
   vect()  # convert to terra format for cropping
 
 
-
 #### importing ndvi ############################################################
 
 ndvi_rast <- rast("data/ndvi_export_2025.tif") |> 
