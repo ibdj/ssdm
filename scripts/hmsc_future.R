@@ -51,10 +51,10 @@ Y <- species_matrix |>
 
 rownames(Y) <- species_matrix$plot_name
 
-# X matrix - environmental predictors
+# X matrix - environmental predictors (without ndvi)
 X <- abiotic_plot |>
   dplyr::select(elevation, slope, aspect_sin, aspect_cos,
-                twi, ndvi, temp_predicted) |>
+                twi, temp_predicted) |>
   as.data.frame()
 
 rownames(X) <- abiotic_plot$plot_name
