@@ -85,7 +85,7 @@ df_cover <- df_raw |>
 
 summary(df_cover)
 
-#### cobining all tms ##########################################################
+#### combining all tms ##########################################################
 
 # Bind and normalise vwc together
 tms_combined <- bind_rows(tms_own, tms_biobasis) |>
@@ -101,9 +101,6 @@ nrow(tms_combined)
 tms_combined_sf <- tms_combined |>
   st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) |>
   st_transform(32622)
-
-plot(ndvi_rast)
-plot(st_geometry(tms_combined_sf), add = TRUE, pch = 16, col = "red", cex = 0.8)
 
 #### species matrix ############################################################
 
@@ -245,6 +242,9 @@ abiotic_plot <- abiotic_plot |>
 #  select(-"ndvi") |>
   mutate(ndvi = terra::extract(ndvi_rast, plots_sf)[, 2])
 
+plot(ndvi_rast)
+plot(st_geometry(tms_combined_sf), add = TRUE, pch = 16, col = "red", cex = 0.8)
+
 abiotic_plot |> 
   dplyr::select(plot_name, ndvi) |> 
   summary()
@@ -331,7 +331,7 @@ saveRDS(abiotic_plot, "data/abiotic_plot.rds")
 saveRDS(species_matrix, "data/species_matrix.rds")
 saveRDS(species_long, "data/species_long.rds")
 writeRaster(dem_rast, "data/dem_crop.tif", overwrite = TRUE)
-writeRaster(twi_rast, "data/twi_calculated.tif", overwrite = TRUE)
+writeRaster(twi_rast, "data/twi_calculated_v2.tif", overwrite = TRUE)
 writeRaster(ndvi_rast, "data/ndvi_crop.tif", overwrite = TRUE)
 writeRaster(slope_rast, "data/slope_crop.tif", overwrite = TRUE)
 writeRaster(aspect_rast, "data/aspect_crop.tif", overwrite = TRUE)
