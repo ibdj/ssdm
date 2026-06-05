@@ -18,7 +18,7 @@ library(sf)
 set.seed(42)
 
 pred_names <- c("elevation", "slope", "aspect_sin", "aspect_cos", 
-                "twi", "temp_predicted")
+                "twi", "temp_predicted", "snowfree")
 
 #### prepare plot data #########################################################
 
@@ -38,7 +38,7 @@ pa_matrix <- species_matrix |>
   left_join(
     abiotic_plot |>
       dplyr::select(plot_name, elevation, slope, aspect_sin, aspect_cos,
-                    twi, ndvi, soil_tem_ave) |>
+                    twi, ndvi, soil_tem_ave, snowfree) |>
       mutate(temp_predicted = ifelse(is.na(soil_tem_ave),
                                      imputed_temp,
                                      soil_tem_ave)) |>
@@ -58,6 +58,8 @@ x_train <- pa_matrix |>
   dplyr::select(all_of(pred_names)) |>
   as.data.frame()
 
+#### read all rasters ##########################################################
+
 #### prepare raster stack ######################################################
 
 # Resample all rasters to match ndvi_rast (10m reference)
@@ -67,10 +69,11 @@ aspect_sin_resamp  <- resample(aspect_sin_rast, ndvi_rast)
 aspect_cos_resamp  <- resample(aspect_cos_rast, ndvi_rast)
 twi_resamp         <- resample(twi_rast, ndvi_rast)
 temp_resamp        <- resample(temp_rast_masked, ndvi_rast)
+snowfree_resamp    <- resample(snowfree_rast, ndvi_rast)
 
 # Stack and name to match predictor names
 pred_rast_stack <- c(elev_resamp, slope_resamp, aspect_sin_resamp,
-                     aspect_cos_resamp, twi_resamp, temp_resamp)
+                     aspect_cos_resamp, twi_resamp, temp_resamp, snowfree_resamp)
 
 names(pred_rast_stack) <- pred_names
 
