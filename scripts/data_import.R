@@ -317,6 +317,27 @@ abiotic_plot |>
   dplyr::select(plot_name, twi) |> 
   summary()
 
+#### importing snowfree days ###################################################
+
+snowfree_rast <- rast("data/snow_free_days.tif") |>
+  project("EPSG:32622") |>
+  crop(aoi) |>
+  resample(ndvi_rast)
+
+plot(snowfree_rast)
+summary(snowfree_rast)
+print(snowfree_rast)
+
+abiotic_plot <- abiotic_plot |>
+  #  select(-"ndvi") |>
+  mutate(snowfree = terra::extract(snowfree_rast, plots_sf)[, 2])
+
+plot(snowfree_rast)
+plot(st_geometry(tms_combined_sf), add = TRUE, pch = 16, col = "red", cex = 0.8)
+
+abiotic_plot |> 
+  dplyr::select(plot_name, snowfree) |> 
+  summary()
 
 #### checking the nas ##########################################################
 
@@ -335,6 +356,7 @@ writeRaster(twi_rast, "data/twi_calculated_v2.tif", overwrite = TRUE)
 writeRaster(ndvi_rast, "data/ndvi_crop.tif", overwrite = TRUE)
 writeRaster(slope_rast, "data/slope_crop.tif", overwrite = TRUE)
 writeRaster(aspect_rast, "data/aspect_crop.tif", overwrite = TRUE)
+writeRaster(snowfree_rast, "data/snowfree_crop.tif", overwrite = TRUE)
 
 ##### interpolation ############################################################
 
