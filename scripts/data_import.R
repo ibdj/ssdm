@@ -212,9 +212,6 @@ species_frequency <- species_matrix |>
 
 print(species_frequency, n = Inf)
 
-write_rds(species_frequency, "data/species_frequency.rds")
-
-
 #### plots and aoi #############################################################
 
 plots_sf <- abiotic_plot |>
@@ -253,6 +250,24 @@ twi_rast <- rast("data/twi_calculated.tif")
 
 #### raster temp (interpolation) ###############################################
 
+
+tms_combined <- tms_combined |>
+  mutate(
+    elevation  = terra::extract(rast_dem_proc,        tms_combined_sf)[, 2],
+    ndvi       = terra::extract(rast_ndvi_proc,       tms_combined_sf)[, 2],
+    ndwi       = terra::extract(rast_ndwi_proc,       tms_combined_sf)[, 2],
+    snowfree   = terra::extract(rast_snowfree_proc,   tms_combined_sf)[, 2],
+    slope      = terra::extract(rast_slope_proc,      tms_combined_sf)[, 2],
+    aspect_raw = terra::extract(rast_aspect_proc,     tms_combined_sf)[, 2],
+    aspect_cos = terra::extract(rast_aspect_cos_proc, tms_combined_sf)[, 2],
+    aspect_sin = terra::extract(rast_aspect_sin_proc, tms_combined_sf)[, 2],
+    twi        = terra::extract(rast_twi_proc,        tms_combined_sf)[, 2],
+    temp       = terra::extract(rast_temp_proc,       tms_combined_sf)[, 2]
+  )
+
+tms_combined <- tms_combined |> 
+  left_join(samples_qgis |> dplyr::select(plot_name, ndvi), by = "plot_name")
+
 # Step 1: fit linear model on combined logger data
 temp_lm <- lm(temp_mean_tms ~ ndvi + aspect_cos + aspect_sin, 
               data = tms_combined)
@@ -284,7 +299,7 @@ plot(temp_rast)
 #plot(temp_rast_masked)
 #writeRaster(temp_rast_masked, "data/temp_predicted_rast.tif", overwrite = TRUE)
 
-#### moisture interpolation ####################################################
+#### raster moisture (interpolation) ####################################################
 
 moisture_sf <- abiotic_plot |>
   filter(!is.na(soil_moi_ave)) |>
@@ -351,7 +366,6 @@ moist_bart <- bart(
 )
 
 summary(moist_bart)
-
 
 #### processing all rasters ####################################################
 
@@ -466,6 +480,7 @@ sum(is.na(abiotic_plot$temp_predicted))
 saveRDS(abiotic_plot, "data/abiotic_plot.rds")
 saveRDS(species_matrix, "data/species_matrix.rds")
 saveRDS(species_long, "data/species_long.rds")
+write_rds(species_frequency, "data/species_frequency.rds")
 
 writeRaster(rast_dem_proc, "data/rast_dem_proc.tif", overwrite = TRUE)
 writeRaster(rast_ndvi_proc, "data/rast_ndvi_proc.tif", overwrite = TRUE)
