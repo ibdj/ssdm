@@ -93,6 +93,75 @@ df_cover <- df_raw |>
 
 summary(df_cover)
 
+#### combining all tms ##########################################################
+
+# Extract TMS logger plots with coordinates from abiotic_plot
+tms_own <-  abiotic_plot |>
+  filter(!is.na(temp_mean_tms)) |>
+  dplyr::select(plot_name, x, y, temp_mean_tms, mean_soilmoisture_tms) |>
+  rename(Longitude = x, Latitude = y)
+
+# Bind and normalise vwc together
+tms_combined <- bind_rows(tms_own, tms_biobasis) |>
+  mutate(
+    vwc_tms = (mean_soilmoisture_tms - min(mean_soilmoisture_tms)) / 
+      (max(mean_soilmoisture_tms) - min(mean_soilmoisture_tms)) * 100
+  )
+
+summary(tms_combined)
+
+nrow(tms_combined)
+
+tms_combined_sf <- tms_combined |>
+  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) |>
+  st_transform(32622)
+
+#### combining all tms ##########################################################
+
+# Extract TMS logger plots with coordinates from abiotic_plot
+tms_own <-  abiotic_plot |>
+  filter(!is.na(temp_mean_tms)) |>
+  dplyr::select(plot_name, x, y, temp_mean_tms, mean_soilmoisture_tms) |>
+  rename(Longitude = x, Latitude = y)
+
+# Bind and normalise vwc together
+tms_combined <- bind_rows(tms_own, tms_biobasis) |>
+  mutate(
+    vwc_tms = (mean_soilmoisture_tms - min(mean_soilmoisture_tms)) / 
+      (max(mean_soilmoisture_tms) - min(mean_soilmoisture_tms)) * 100
+  )
+
+summary(tms_combined)
+
+nrow(tms_combined)
+
+#### combining all tms ##########################################################
+
+# Extract TMS logger plots with coordinates from abiotic_plot
+tms_own <-  abiotic_plot |>
+  filter(!is.na(temp_mean_tms)) |>
+  dplyr::select(plot_name, x, y, temp_mean_tms, mean_soilmoisture_tms) |>
+  rename(Longitude = x, Latitude = y)
+
+# Bind and normalise vwc together
+tms_combined <- bind_rows(tms_own, tms_biobasis) |>
+  mutate(
+    vwc_tms = (mean_soilmoisture_tms - min(mean_soilmoisture_tms)) / 
+      (max(mean_soilmoisture_tms) - min(mean_soilmoisture_tms)) * 100
+  )
+
+summary(tms_combined)
+
+nrow(tms_combined)
+
+tms_combined_sf <- tms_combined |>
+  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) |>
+  st_transform(32622) <- tms_combined |>
+  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) |>
+  st_transform(32622)
+
+summary(tms_combined_sf)
+
 #### species matrix ############################################################
 
 # Step 1: pivot just the species names to long
@@ -231,6 +300,39 @@ wbt_wetness_index(
 
 twi_rast <- rast("data/twi_calculated.tif")
 
+#### raster temp (interpolation) ###############################################
+
+# Step 1: fit linear model on combined logger data
+temp_lm <- lm(temp_mean_tms ~ ndvi + aspect_cos + aspect_sin, 
+              data = tms_combined)
+
+summary(temp_lm)
+
+# Add residuals to combined logger data
+tms_combined <- tms_combined |>
+  mutate(temp_resid = residuals(temp_lm))
+
+# Convert to sf for variogram
+tms_combined_sf <- tms_combined |>
+  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) |>
+  st_transform(32622)
+
+# Compute variogram of residuals
+vgm_temp <- variogram(temp_resid ~ 1, data = tms_combined_sf)
+plot(vgm_temp)
+
+# Now stack
+pred_stack <- c(rast_ndvi_proc, rast_aspect_cos_proc, rast_aspect_sin_proc)
+names(pred_stack) <- c("ndvi", "aspect_cos", "aspect_sin")
+
+# Project
+temp_rast <- predict(pred_stack, temp_lm)
+plot(temp_rast)
+
+#temp_rast_masked <- mask(temp_rast, ndvi_rast < 0.1, maskvalue = TRUE)
+#plot(temp_rast_masked)
+#writeRaster(temp_rast_masked, "data/temp_predicted_rast.tif", overwrite = TRUE)
+
 #### processing all rasters ####################################################
 
 # Define reference raster - everything gets matched to this
@@ -247,6 +349,7 @@ rast_aspect_proc     <- aspect_rast |> process_rast()
 rast_aspect_cos_proc <- aspect_cos_rast |> process_rast()
 rast_aspect_sin_proc <- aspect_sin_rast |> process_rast()
 rast_twi_proc        <- twi_rast |> process_rast()
+rast_temp_proc       <- temp_rast |> process_rast()
 
 sapply(list(rast_dem_proc, 
             rast_ndvi_proc, 
@@ -255,45 +358,25 @@ sapply(list(rast_dem_proc,
             rast_slope_proc,
             rast_aspect_proc,
             rast_aspect_cos_proc,
-            rast_aspect_sin_proc
+            rast_aspect_sin_proc,
+            rast_twi_proc,
+            rast_temp_proc
             ),
        function(r) crs(r, describe = TRUE)$code)
 
 abiotic_plot <- abiotic_plot |>
   mutate(
-    elevation = terra::extract(rast_dem_proc,        plots_sf)[, 2],
-    ndvi      = terra::extract(rast_ndvi_proc,       plots_sf)[, 2],
-    ndwi      = terra::extract(rast_ndwi_proc,       plots_sf)[, 2],
-    snowfree  = terra::extract(rast_snowfree_proc,   plots_sf)[, 2],
-    slope     = terra::extract(rast_slope_proc,      plots_sf)[, 2],
-    aspect_raw = terra::extract(rast_aspect_proc,    plots_sf)[, 2],
-    aspect_cos = terra::extract(rast_aspect_cos_proc,plots_sf)[, 2],
-    aspect_sin = terra::extract(rast_aspect_sin_proc,plots_sf)[, 2],
-    twi       = terra::extract(rast_twi_proc,        plots_sf)[, 2]
+    elevation  = terra::extract(rast_dem_proc,        plots_sf)[, 2],
+    ndvi       = terra::extract(rast_ndvi_proc,       plots_sf)[, 2],
+    ndwi       = terra::extract(rast_ndwi_proc,       plots_sf)[, 2],
+    snowfree   = terra::extract(rast_snowfree_proc,   plots_sf)[, 2],
+    slope      = terra::extract(rast_slope_proc,      plots_sf)[, 2],
+    aspect_raw = terra::extract(rast_aspect_proc,     plots_sf)[, 2],
+    aspect_cos = terra::extract(rast_aspect_cos_proc, plots_sf)[, 2],
+    aspect_sin = terra::extract(rast_aspect_sin_proc, plots_sf)[, 2],
+    twi        = terra::extract(rast_twi_proc,        plots_sf)[, 2],
+    temp       = terra::extract(rast_temp_proc,       plots_sf)[, 2]
   )
-
-#### combining all tms ##########################################################
-
-# Extract TMS logger plots with coordinates from abiotic_plot
-tms_own <-  abiotic_plot |>
-  filter(!is.na(temp_mean_tms)) |>
-  dplyr::select(plot_name, x, y, temp_mean_tms, mean_soilmoisture_tms) |>
-  rename(Longitude = x, Latitude = y)
-
-# Bind and normalise vwc together
-tms_combined <- bind_rows(tms_own, tms_biobasis) |>
-  mutate(
-    vwc_tms = (mean_soilmoisture_tms - min(mean_soilmoisture_tms)) / 
-      (max(mean_soilmoisture_tms) - min(mean_soilmoisture_tms)) * 100
-  )
-
-summary(tms_combined)
-
-nrow(tms_combined)
-
-tms_combined_sf <- tms_combined |>
-  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) |>
-  st_transform(32622)
 
 #### checking the nas ##########################################################
 
@@ -302,21 +385,6 @@ abiotic_plot |>
   dplyr::select(plot_name, x, y, elevation, slope, aspect_raw, twi, ndvi)
 
 summary(abiotic_plot)
-
-#### writing all data files ####################################################
-saveRDS(abiotic_plot, "data/abiotic_plot.rds")
-saveRDS(species_matrix, "data/species_matrix.rds")
-saveRDS(species_long, "data/species_long.rds")
-
-writeRaster(rast_dem_proc, "data/rast_dem_proc.tif", overwrite = TRUE)
-writeRaster(rast_ndvi_proc, "data/rast_ndvi_proc.tif", overwrite = TRUE)
-writeRaster(rast_ndwi_proc, "data/rast_ndwi_proc.tif", overwrite = TRUE)
-writeRaster(rast_snowfree_proc, "data/rast_snowfree_proc.tif", overwrite = TRUE)
-writeRaster(rast_slope_proc, "data/rast_slope_proc.tif", overwrite = TRUE)
-writeRaster(rast_aspect_proc, "data/rast_aspect_proc.tif", overwrite = TRUE)
-writeRaster(rast_aspect_cos_proc, "data/rast_aspect_cos_proc.tif", overwrite = TRUE)
-writeRaster(rast_aspect_sin_proc, "data/rast_aspect_sin_proc.tif", overwrite = TRUE)
-writeRaster(rast_twi_proc, "data/rast_twi_proc.tif", overwrite = TRUE)
 
 
 ##### interpolation ############################################################
@@ -356,54 +424,7 @@ abiotic_plot |>
 
 #This will tell if the logger-based values show cleaner relationships with topography than the point measurements.
 
-##### temperature interpolation ###########################################
 
-# Step 1: fit linear model on combined logger data
-temp_lm <- lm(temp_mean_tms ~ ndvi + aspect_cos + aspect_sin + slope, 
-              data = tms_combined)
-
-temp_lm2 <- lm(temp_mean_tms ~ ndvi + aspect_cos + aspect_sin, 
-              data = tms_combined)
-
-summary(temp_lm)
-
-# Add residuals to combined logger data
- tms_combined <- tms_combined |>
-  mutate(temp_resid = residuals(temp_lm2))
-
-# Convert to sf for variogram
-tms_combined_sf <- tms_combined |>
-  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) |>
-  st_transform(32622)
-
-# Compute variogram of residuals
-vgm_temp <- variogram(temp_resid ~ 1, data = tms_combined_sf)
-plot(vgm_temp)
-
-# Resample aspect layers to match ndvi resolution and extent
-aspect_cos_rast <- resample(aspect_cos_rast, ndvi_rast) |> 
-  crop(aoi)
-
-aspect_sin_rast <- resample(aspect_sin_rast, ndvi_rast) |> 
-  crop(aoi)
-
-# Now stack
-pred_stack <- c(ndvi_rast, aspect_cos_rast, aspect_sin_rast)
-names(pred_stack) <- c("ndvi", "aspect_cos", "aspect_sin")
-
-# Project
-temp_rast <- predict(pred_stack, temp_lm2)
-plot(temp_rast)
-
-writeRaster(temp_rast, "data/temp_predicted_rast.tif", overwrite = TRUE)
-
-temp_rast_masked <- mask(temp_rast, ndvi_rast < 0.1, maskvalue = TRUE)
-
-terra::writeRaster(temp_rast, "data/temp_predicted_rast.tif", overwrite = TRUE)
-terra::writeRaster(temp_rast_masked, "data/temp_predicted_masked.tif", overwrite = TRUE)
-
-plot(temp_rast_masked)
-writeRaster(temp_rast_masked, "data/temp_predicted_rast.tif", overwrite = TRUE)
 
 #### moisture interpolation ####################################################
 
@@ -487,3 +508,18 @@ abiotic_plot <- abiotic_plot |>
 # Verify no more NAs
 sum(is.na(abiotic_plot$temp_predicted))
 
+
+#### writing all data files ####################################################
+saveRDS(abiotic_plot, "data/abiotic_plot.rds")
+saveRDS(species_matrix, "data/species_matrix.rds")
+saveRDS(species_long, "data/species_long.rds")
+
+writeRaster(rast_dem_proc, "data/rast_dem_proc.tif", overwrite = TRUE)
+writeRaster(rast_ndvi_proc, "data/rast_ndvi_proc.tif", overwrite = TRUE)
+writeRaster(rast_ndwi_proc, "data/rast_ndwi_proc.tif", overwrite = TRUE)
+writeRaster(rast_snowfree_proc, "data/rast_snowfree_proc.tif", overwrite = TRUE)
+writeRaster(rast_slope_proc, "data/rast_slope_proc.tif", overwrite = TRUE)
+writeRaster(rast_aspect_proc, "data/rast_aspect_proc.tif", overwrite = TRUE)
+writeRaster(rast_aspect_cos_proc, "data/rast_aspect_cos_proc.tif", overwrite = TRUE)
+writeRaster(rast_aspect_sin_proc, "data/rast_aspect_sin_proc.tif", overwrite = TRUE)
+writeRaster(rast_twi_proc, "data/rast_twi_proc.tif", overwrite = TRUE)
