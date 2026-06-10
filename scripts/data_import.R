@@ -72,9 +72,10 @@ tms_biobasis <- BioBasis_Nuuk_CFlux_Microclimate_2025 |>
 summary(tms_biobasis)
 
 samples_qgis <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/samples_qgis.csv") |> 
-  dplyr::select(plot, X,Y,elevation, ndvi, ndwi) |> 
+  dplyr::select(plot, X, Y, elevation, ndvi, ndwi) |> 
   mutate(plot_name = plot) |> 
-  left_join(tms_mp, by = "plot_name")
+  left_join(tms_mp, by = "plot_name") |> 
+  rename(plot = plot.x, plot_tms = plot.y)
 
 names(samples_qgis)
 
@@ -143,7 +144,7 @@ species_matrix <- species_long |>
     values_fill = 0
   )
 
-write_rds(species_matrix, "data/species_matrix.rds")
+
 
 sp_cols <- species_matrix |> dplyr::select(-plot_name)
 
@@ -158,8 +159,8 @@ abiotic_plot <- df_cover |>
 
 abiotic_plot <- abiotic_plot |> 
   dplyr::select(plot_name, veg_height_ave, bare_ground_bb, x, y, total_cover, richness, shannon, soil_moi_ave, soil_tem_ave) |> 
-  rename(mois_ave_mea = soil_moi_ave,
-         temp_aev_mea = soil_tem_ave) |> 
+  rename(mois_mean_mea = soil_moi_ave,
+         temp_mean_mea = soil_tem_ave) |> 
   left_join(tms_mp, by = "plot_name") |> 
   dplyr::select(-plot)
 
@@ -167,7 +168,7 @@ summary(abiotic_plot)
 
 # Find the plot with NA temp
 na_plot <- abiotic_plot |> 
-  filter(is.na(temp_aev_mea))
+  filter(is.na(temp_mean_mea))
 
 # Convert to sf and extract from raster
 na_plot_sf <- na_plot |>
@@ -175,7 +176,6 @@ na_plot_sf <- na_plot |>
   st_transform(32622)
 
 na_plot_sf
-
 
 #### combining all tms ##########################################################
 
@@ -284,6 +284,75 @@ plot(temp_rast)
 #plot(temp_rast_masked)
 #writeRaster(temp_rast_masked, "data/temp_predicted_rast.tif", overwrite = TRUE)
 
+#### moisture interpolation ####################################################
+
+moisture_sf <- abiotic_plot |>
+  filter(!is.na(soil_moi_ave)) |>
+  st_as_sf(coords = c("x", "y"), crs = 4326) |>
+  st_transform(32622)
+
+vgm_moist <- variogram(soil_moi_ave ~ 1, data = moisture_sf)
+plot(vgm_moist)
+vgm_moist_fit <- fit.variogram(vgm_moist, 
+                               model = vgm(psill = 300, 
+                                           model = "Sph", 
+                                           range = 800, 
+                                           nugget = 150))
+plot(vgm_moist, vgm_moist_fit)
+
+# Create prediction grid from raster extent
+pred_grid <- as.points(ndvi_rast) |>
+  st_as_sf() |>
+  st_transform(32622)
+
+# Run ordinary kriging
+moist_krige <- krige(
+  formula = soil_moi_ave ~ 1,
+  locations = moisture_sf,
+  newdata = pred_grid,
+  model = vgm_moist_fit
+)
+
+# Check what moist_krige looks like
+class(moist_krige)
+head(moist_krige)
+nrow(moist_krige)
+summary(moist_krige$var1.pred)
+
+# Extract coordinates and predictions
+moist_df <- st_coordinates(moist_krige) |>
+  as.data.frame() |>
+  mutate(moisture = moist_krige$var1.pred)
+
+# Convert to raster
+moist_rast <- rast(moist_df, type = "xyz", crs = crs(ndvi_rast))
+
+# # Check
+print(moist_rast)
+summary(moist_rast)
+plot(moist_rast)
+
+# Mask water bodies same as temperature
+moist_rast_masked <- mask(moist_rast, ndvi_rast < 0.1, maskvalue = TRUE)
+
+plot(moist_rast_masked)
+
+# Simple regression on NDVI first
+moist_lm4 <- lm(soil_moi_ave ~ ndvi + twi + elevation, data = abiotic_plot)
+summary(moist_lm4)
+
+# Prepare data - use all available predictors
+moist_bart <- bart(
+  x.train = abiotic_plot |> 
+    dplyr::select(ndvi, twi, elevation, slope, aspect_sin, aspect_cos, snowfree) |>
+    as.data.frame(),
+  y.train = abiotic_plot$soil_moi_ave,
+  keeptrees = TRUE
+)
+
+summary(moist_bart)
+
+
 #### processing all rasters ####################################################
 
 # Define reference raster - everything gets matched to this
@@ -377,76 +446,6 @@ abiotic_plot |>
   round(2)
 
 #This will tell if the logger-based values show cleaner relationships with topography than the point measurements.
-
-
-
-#### moisture interpolation ####################################################
-
-moisture_sf <- abiotic_plot |>
-  filter(!is.na(soil_moi_ave)) |>
-  st_as_sf(coords = c("x", "y"), crs = 4326) |>
-  st_transform(32622)
-
-vgm_moist <- variogram(soil_moi_ave ~ 1, data = moisture_sf)
-plot(vgm_moist)
-vgm_moist_fit <- fit.variogram(vgm_moist, 
-                               model = vgm(psill = 300, 
-                                           model = "Sph", 
-                                           range = 800, 
-                                           nugget = 150))
-plot(vgm_moist, vgm_moist_fit)
-
-# Create prediction grid from raster extent
-pred_grid <- as.points(ndvi_rast) |>
-  st_as_sf() |>
-  st_transform(32622)
-
-# Run ordinary kriging
-moist_krige <- krige(
-  formula = soil_moi_ave ~ 1,
-  locations = moisture_sf,
-  newdata = pred_grid,
-  model = vgm_moist_fit
-)
-
-# Check what moist_krige looks like
-class(moist_krige)
-head(moist_krige)
-nrow(moist_krige)
-summary(moist_krige$var1.pred)
-
-# Extract coordinates and predictions
-moist_df <- st_coordinates(moist_krige) |>
-  as.data.frame() |>
-  mutate(moisture = moist_krige$var1.pred)
-
-# Convert to raster
-moist_rast <- rast(moist_df, type = "xyz", crs = crs(ndvi_rast))
-
-# # Check
-print(moist_rast)
-summary(moist_rast)
-plot(moist_rast)
-
-# Mask water bodies same as temperature
-moist_rast_masked <- mask(moist_rast, ndvi_rast < 0.1, maskvalue = TRUE)
-
-plot(moist_rast_masked)
-
-# Simple regression on NDVI first
-moist_lm4 <- lm(soil_moi_ave ~ ndvi + twi + elevation, data = abiotic_plot)
-summary(moist_lm4)
-
-# Prepare data - use all available predictors
-moist_bart <- bart(
-  x.train = abiotic_plot |> 
-    dplyr::select(ndvi, twi, elevation, slope, aspect_sin, aspect_cos, snowfree) |>
-    as.data.frame(),
-  y.train = abiotic_plot$soil_moi_ave,
-  keeptrees = TRUE
-)
-
-summary(moist_bart)
 
 
 #### Extract interpolated value ################################################
