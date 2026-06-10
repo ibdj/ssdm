@@ -200,34 +200,6 @@ tms_combined_sf <- tms_combined |>
   st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) |>
   st_transform(32622)
 
-#### combining all tms ##########################################################
-
-# Extract TMS logger plots with coordinates from abiotic_plot
-tms_own <-  abiotic_plot |>
-  filter(!is.na(temp_mean_tms)) |>
-  dplyr::select(plot_name, x, y, temp_mean_tms, mean_soilmoisture_tms) |>
-  rename(Longitude = x, Latitude = y)
-
-# Bind and normalise vwc together
-tms_combined <- bind_rows(tms_own, tms_biobasis) |>
-  mutate(
-    vwc_tms = (mean_soilmoisture_tms - min(mean_soilmoisture_tms)) / 
-      (max(mean_soilmoisture_tms) - min(mean_soilmoisture_tms)) * 100
-  )
-
-summary(tms_combined)
-
-nrow(tms_combined)
-
-tms_combined_sf <- tms_combined |>
-  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) |>
-  st_transform(32622) <- tms_combined |>
-  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) |>
-  st_transform(32622)
-
-summary(tms_combined_sf)
-
-
 #### species frequency #########################################################
 
 species_frequency <- species_matrix |>
