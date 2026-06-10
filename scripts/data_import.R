@@ -9,7 +9,7 @@ library(whitebox) # to calculate twi
 whitebox::install_whitebox()  # installs the WhiteboxTools binary
 library(readxl)
 library(gstat)
-devtools::install_github('cjcarlson/embarcadero') #sdm also for interpolation
+#devtools::install_github('cjcarlson/embarcadero') #sdm also for interpolation
 library(embarcadero)
 library(pROC)
 library(dbarts)
@@ -31,7 +31,15 @@ bb_to_cover <- function(x) {
   )
 }
 
-#### loading the data ##########################################################
+# Single processing function
+process_rast <- function(path, ref = ref_rast) {
+  rast(path) |>
+    project("EPSG:32622") |>
+    crop(aoi) |>
+    resample(ref)
+}
+
+#### loading tms data ##########################################################
 
 tms <- readRDS("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/tms_pivot.rds") |> 
   clean_names() |> 
@@ -85,23 +93,6 @@ df_cover <- df_raw |>
 
 summary(df_cover)
 
-#### combining all tms ##########################################################
-
-# Bind and normalise vwc together
-tms_combined <- bind_rows(tms_own, tms_biobasis) |>
-  mutate(
-    vwc_tms = (mean_soilmoisture_tms - min(mean_soilmoisture_tms)) / 
-      (max(mean_soilmoisture_tms) - min(mean_soilmoisture_tms)) * 100
-  )
-
-summary(tms_combined)
-
-nrow(tms_combined)
-
-tms_combined_sf <- tms_combined |>
-  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) |>
-  st_transform(32622)
-
 #### species matrix ############################################################
 
 # Step 1: pivot just the species names to long
@@ -147,8 +138,8 @@ species_long <- species_long |>
   ungroup()
 
 species_long |> 
-  count(plot_name, species_name) |> 
-  filter(n > 1)
+  dplyr::count(plot_name, species_name) |> 
+  dplyr::filter(n > 1)
 
 species_matrix <- species_long |>
   dplyr::select(plot_name, species_name, cover) |>
@@ -158,51 +149,9 @@ species_matrix <- species_long |>
     values_fill = 0
   )
 
+write_rds(species_matrix, "data/species_matrix.rds")
+
 sp_cols <- species_matrix |> dplyr::select(-plot_name)
-
-abiotic_plot <- df_cover |>
-  left_join(species_matrix |> dplyr::select(plot_name), by = "plot_name") |>
-  mutate(
-    richness = rowSums(sp_cols > 0),
-    shannon = vegan::diversity(sp_cols, index = "shannon")
-  )
-
-#### final abiotic df###########################################################
-
-abiotic_plot <- abiotic_plot |> 
-  dplyr::select(plot_name, veg_height_ave, bare_ground_bb, x, y, total_cover, richness, shannon, soil_moi_ave, soil_tem_ave) |> 
-  left_join(tms, by = "plot_name") |> 
-  dplyr::select(-plot)
-  
-summary(abiotic_plot)
-
-# Find the plot with NA temp
-na_plot <- abiotic_plot |> 
-  filter(is.na(soil_tem_ave))
-
-# Convert to sf and extract from raster
-na_plot_sf <- na_plot |>
-  st_as_sf(coords = c("x", "y"), crs = 4326) |>
-  st_transform(32622)
-
-# Extract interpolated value
-imputed_temp <- terra::extract(temp_rast, na_plot_sf)[, 2]
-imputed_temp
-
-# Fill NA in abiotic_plot
-abiotic_plot <- abiotic_plot |>
-  mutate(temp_predicted = ifelse(is.na(soil_tem_ave), 
-                                 imputed_temp, 
-                                 soil_tem_ave))
-
-# Verify no more NAs
-sum(is.na(abiotic_plot$temp_predicted))
-
-# Extract TMS logger plots with coordinates from abiotic_plot
-tms_own <-  abiotic_plot |>
-  filter(!is.na(temp_mean_tms)) |>
-  dplyr::select(plot_name, x, y, temp_mean_tms, mean_soilmoisture_tms) |>
-  rename(Longitude = x, Latitude = y)
 
 #### species frequency #########################################################
 
@@ -216,6 +165,36 @@ species_frequency <- species_matrix |>
 
 print(species_frequency, n = Inf)
 
+write_rds(species_frequency, "data/species_frequency.rds")
+
+
+#### abiotic df ################################################################
+
+abiotic_plot <- df_cover |>
+  left_join(species_matrix |> dplyr::select(plot_name), by = "plot_name") |>
+  mutate(
+    richness = rowSums(sp_cols > 0),
+    shannon = vegan::diversity(sp_cols, index = "shannon")
+  )
+
+abiotic_plot <- abiotic_plot |> 
+  dplyr::select(plot_name, veg_height_ave, bare_ground_bb, x, y, total_cover, richness, shannon, soil_moi_ave, soil_tem_ave) |> 
+  left_join(tms, by = "plot_name") |> 
+  dplyr::select(-plot)
+
+summary(abiotic_plot)
+
+# Find the plot with NA temp
+na_plot <- abiotic_plot |> 
+  filter(is.na(soil_tem_ave))
+
+# Convert to sf and extract from raster
+na_plot_sf <- na_plot |>
+  st_as_sf(coords = c("x", "y"), crs = 4326) |>
+  st_transform(32622)
+
+na_plot_sf
+
 #### plots and aoi #############################################################
 
 plots_sf <- abiotic_plot |>
@@ -228,8 +207,7 @@ aoi <- plots_sf |>
   st_buffer(50) |>
   vect()  # convert to terra format for cropping
 
-
-#### importing ndvi ############################################################
+#### raster import ndvi ############################################################
 
 ndvi_rast <- rast("data/ndvi_export_2025.tif") |> 
   crop(aoi)
@@ -238,18 +216,27 @@ plot(ndvi_rast)
 summary(ndvi_rast)
 print(ndvi_rast)
 
-abiotic_plot <- abiotic_plot |>
-#  select(-"ndvi") |>
-  mutate(ndvi = terra::extract(ndvi_rast, plots_sf)[, 2])
+#### raster import ndwi ############################################################
 
-plot(ndvi_rast)
-plot(st_geometry(tms_combined_sf), add = TRUE, pch = 16, col = "red", cex = 0.8)
+ndwi_rast <- rast("data/ndwi.tif") |>
+  project("EPSG:32622") |>
+  crop(aoi) |>
+  resample(ndvi_rast)
+
+print(ndwi_rast)
+plot(ndwi_rast)
+
+abiotic_plot <- abiotic_plot |>
+  #  select(-"ndvi") |>
+  mutate(ndwi = terra::extract(ndwi_rast, plots_sf)[, 2])
+
+plot(ndwi_rast)
 
 abiotic_plot |> 
-  dplyr::select(plot_name, ndvi) |> 
+  dplyr::select(plot_name, ndwi) |> 
   summary()
 
-#### importing elevation ############################################################
+#### raster import elevation #######################################################
 
 dem_rast <- rast("data/elevation_arcticdem-30_32622.tif") |> 
   crop(aoi)
@@ -265,7 +252,28 @@ abiotic_plot |>
   dplyr::select(plot_name, elevation) |> 
   summary()
 
-#### slope #####################################################################
+#### raster import snowfree days ###################################################
+
+snowfree_rast    <- rast("data/snow_free_days.tif") |>
+  project("EPSG:32622") |>
+  crop(aoi) |>
+  resample(ndvi_rast)
+
+plot(snowfree_rast)
+summary(snowfree_rast)
+print(snowfree_rast)
+
+abiotic_plot <- abiotic_plot |>
+  #  select(-"ndvi") |>
+  mutate(snowfree = terra::extract(snowfree_rast, plots_sf)[, 2])
+
+plot(snowfree_rast)
+
+abiotic_plot |> 
+  dplyr::select(plot_name, snowfree) |> 
+  summary()
+
+#### raster slope #####################################################################
 slope_rast <- terrain(dem_rast, v = "slope", unit = "degrees")
 
 abiotic_plot <- abiotic_plot |>
@@ -275,7 +283,7 @@ abiotic_plot |>
   dplyr::select(plot_name, slope) |> 
   summary()
 
-#### aspect ####################################################################
+#### raster aspect ####################################################################
 
 aspect_rast <- terrain(dem_rast, v = "aspect", unit = "degrees") |> 
   crop(aoi)
@@ -295,9 +303,7 @@ aspect_cos_rast <- cos(aspect_rast * pi / 180) |>
   crop(aoi)
 aspect_sin_rast <- sin(aspect_rast * pi / 180) |> 
   crop(aoi)
-#### calculating twi #########################################################
-
-writeRaster(dem_rast, "data/dem_crop.tif", overwrite = TRUE)
+#### raster twi (calculating)#########################################################
 
 wbt_fill_depressions("data/dem_crop.tif", "data/dem_filled.tif")
 wbt_d8_flow_accumulation("data/dem_filled.tif", "data/sca.tif")
@@ -317,27 +323,52 @@ abiotic_plot |>
   dplyr::select(plot_name, twi) |> 
   summary()
 
-#### importing snowfree days ###################################################
+#### processing all rastera ####################################################
 
-snowfree_rast <- rast("data/snow_free_days.tif") |>
+# Define reference raster - everything gets matched to this
+ref_rast <- rast("data/ndvi_export_2025.tif") |>
   project("EPSG:32622") |>
-  crop(aoi) |>
-  resample(ndvi_rast)
+  crop(aoi)
 
-plot(snowfree_rast)
-summary(snowfree_rast)
-print(snowfree_rast)
+sapply(list(dem_rast, ndvi_rast, ndwi_rast, snowfree_rast, 
+            twi_rast, slope_rast, aspect_sin_rast, aspect_cos_rast),
+       function(r) crs(r, describe = TRUE)$code)
 
 abiotic_plot <- abiotic_plot |>
-  #  select(-"ndvi") |>
-  mutate(snowfree = terra::extract(snowfree_rast, plots_sf)[, 2])
+  mutate(
+    ndvi      = terra::extract(ndvi_rast,       plots_sf)[, 2],
+    ndwi      = terra::extract(ndwi_rast,       plots_sf)[, 2],
+    elevation = terra::extract(dem_rast,        plots_sf)[, 2],
+    slope     = terra::extract(slope_rast,      plots_sf)[, 2],
+    aspect_raw = terra::extract(aspect_rast,    plots_sf)[, 2],
+    aspect_sin = terra::extract(aspect_sin_rast,plots_sf)[, 2],
+    aspect_cos = terra::extract(aspect_cos_rast,plots_sf)[, 2],
+    twi       = terra::extract(twi_rast,        plots_sf)[, 2],
+    snowfree  = terra::extract(snowfree_rast,   plots_sf)[, 2]
+  )
 
-plot(snowfree_rast)
-plot(st_geometry(tms_combined_sf), add = TRUE, pch = 16, col = "red", cex = 0.8)
+#### combining all tms ##########################################################
 
-abiotic_plot |> 
-  dplyr::select(plot_name, snowfree) |> 
-  summary()
+# Extract TMS logger plots with coordinates from abiotic_plot
+tms_own <-  abiotic_plot |>
+  filter(!is.na(temp_mean_tms)) |>
+  dplyr::select(plot_name, x, y, temp_mean_tms, mean_soilmoisture_tms) |>
+  rename(Longitude = x, Latitude = y)
+
+# Bind and normalise vwc together
+tms_combined <- bind_rows(tms_own, tms_biobasis) |>
+  mutate(
+    vwc_tms = (mean_soilmoisture_tms - min(mean_soilmoisture_tms)) / 
+      (max(mean_soilmoisture_tms) - min(mean_soilmoisture_tms)) * 100
+  )
+
+summary(tms_combined)
+
+nrow(tms_combined)
+
+tms_combined_sf <- tms_combined |>
+  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) |>
+  st_transform(32622)
 
 #### checking the nas ##########################################################
 
@@ -355,8 +386,10 @@ writeRaster(dem_rast, "data/dem_crop.tif", overwrite = TRUE)
 writeRaster(twi_rast, "data/twi_calculated_v2.tif", overwrite = TRUE)
 writeRaster(ndvi_rast, "data/ndvi_crop.tif", overwrite = TRUE)
 writeRaster(slope_rast, "data/slope_crop.tif", overwrite = TRUE)
-writeRaster(aspect_rast, "data/aspect_crop.tif", overwrite = TRUE)
+writeRaster(aspect_cos_rast, "data/aspect_cos_rast.tif", overwrite = TRUE)
+writeRaster(aspect_sin_rast, "data/aspect_sin_rast.tif", overwrite = TRUE)
 writeRaster(snowfree_rast, "data/snowfree_crop.tif", overwrite = TRUE)
+writeRaster(ndwi_rast, "data/nwdi_crop.tif", overwrite = TRUE)
 
 ##### interpolation ############################################################
 
@@ -420,8 +453,11 @@ vgm_temp <- variogram(temp_resid ~ 1, data = tms_combined_sf)
 plot(vgm_temp)
 
 # Resample aspect layers to match ndvi resolution and extent
-aspect_cos_rast <- resample(aspect_cos_rast, ndvi_rast)
-aspect_sin_rast <- resample(aspect_sin_rast, ndvi_rast)
+aspect_cos_rast <- resample(aspect_cos_rast, ndvi_rast) |> 
+  crop(aoi)
+
+aspect_sin_rast <- resample(aspect_sin_rast, ndvi_rast) |> 
+  crop(aoi)
 
 # Now stack
 pred_stack <- c(ndvi_rast, aspect_cos_rast, aspect_sin_rast)
@@ -434,6 +470,9 @@ plot(temp_rast)
 writeRaster(temp_rast, "data/temp_predicted_rast.tif", overwrite = TRUE)
 
 temp_rast_masked <- mask(temp_rast, ndvi_rast < 0.1, maskvalue = TRUE)
+
+terra::writeRaster(temp_rast, "data/temp_predicted_rast.tif", overwrite = TRUE)
+terra::writeRaster(temp_rast_masked, "data/temp_predicted_masked.tif", overwrite = TRUE)
 
 plot(temp_rast_masked)
 writeRaster(temp_rast_masked, "data/temp_predicted_rast.tif", overwrite = TRUE)
@@ -498,11 +537,25 @@ summary(moist_lm4)
 # Prepare data - use all available predictors
 moist_bart <- bart(
   x.train = abiotic_plot |> 
-    dplyr::select(ndvi, twi, elevation, slope, aspect_sin, aspect_cos) |>
+    dplyr::select(ndvi, twi, elevation, slope, aspect_sin, aspect_cos, snowfree) |>
     as.data.frame(),
   y.train = abiotic_plot$soil_moi_ave,
   keeptrees = TRUE
 )
 
 summary(moist_bart)
+
+
+#### Extract interpolated value ################################################
+imputed_temp <- terra::extract(temp_rast, na_plot_sf)[, 2]
+imputed_temp
+
+# Fill NA in abiotic_plot
+abiotic_plot <- abiotic_plot |>
+  mutate(temp_predicted = ifelse(is.na(soil_tem_ave), 
+                                 imputed_temp, 
+                                 soil_tem_ave))
+
+# Verify no more NAs
+sum(is.na(abiotic_plot$temp_predicted))
 
