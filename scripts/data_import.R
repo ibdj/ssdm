@@ -32,8 +32,8 @@ bb_to_cover <- function(x) {
 }
 
 # Single processing function
-process_rast <- function(path, ref = ref_rast) {
-  rast(path) |>
+process_rast <- function(r, ref = ref_rast) {
+  r |>
     project("EPSG:32622") |>
     crop(aoi) |>
     resample(ref)
@@ -207,103 +207,18 @@ aoi <- plots_sf |>
   st_buffer(50) |>
   vect()  # convert to terra format for cropping
 
-#### raster import ndvi ############################################################
+#### raster imports ############################################################
 
-ndvi_rast <- rast("data/ndvi_export_2025.tif") |> 
-  crop(aoi)
-
-plot(ndvi_rast)
-summary(ndvi_rast)
-print(ndvi_rast)
-
-#### raster import ndwi ############################################################
-
-ndwi_rast <- rast("data/ndwi.tif") |>
-  project("EPSG:32622") |>
-  crop(aoi) |>
-  resample(ndvi_rast)
-
-print(ndwi_rast)
-plot(ndwi_rast)
-
-abiotic_plot <- abiotic_plot |>
-  #  select(-"ndvi") |>
-  mutate(ndwi = terra::extract(ndwi_rast, plots_sf)[, 2])
-
-plot(ndwi_rast)
-
-abiotic_plot |> 
-  dplyr::select(plot_name, ndwi) |> 
-  summary()
-
-#### raster import elevation #######################################################
-
-dem_rast <- rast("data/elevation_arcticdem-30_32622.tif") |> 
-  crop(aoi)
-
-plot(dem_rast)
-summary(dem_rast)
-print(dem_rast)
-
-abiotic_plot <- abiotic_plot |>
-  mutate(elevation = terra::extract(dem_rast, plots_sf)[, 2])
-
-abiotic_plot |> 
-  dplyr::select(plot_name, elevation) |> 
-  summary()
-
-#### raster import snowfree days ###################################################
-
-snowfree_rast    <- rast("data/snow_free_days.tif") |>
-  project("EPSG:32622") |>
-  crop(aoi) |>
-  resample(ndvi_rast)
-
-plot(snowfree_rast)
-summary(snowfree_rast)
-print(snowfree_rast)
-
-abiotic_plot <- abiotic_plot |>
-  #  select(-"ndvi") |>
-  mutate(snowfree = terra::extract(snowfree_rast, plots_sf)[, 2])
-
-plot(snowfree_rast)
-
-abiotic_plot |> 
-  dplyr::select(plot_name, snowfree) |> 
-  summary()
-
-#### raster slope #####################################################################
-slope_rast <- terrain(dem_rast, v = "slope", unit = "degrees")
-
-abiotic_plot <- abiotic_plot |>
-  mutate(slope = terra::extract(slope_rast, plots_sf)[, 2])
-
-abiotic_plot |> 
-  dplyr::select(plot_name, slope) |> 
-  summary()
-
-#### raster aspect ####################################################################
-
-aspect_rast <- terrain(dem_rast, v = "aspect", unit = "degrees") |> 
-  crop(aoi)
-
-abiotic_plot <- abiotic_plot |>
-  mutate(
-    aspect_raw = terra::extract(aspect_rast, plots_sf)[, 2],
-    aspect_sin = sin(aspect_raw * pi / 180),
-    aspect_cos = cos(aspect_raw * pi / 180)
-  )
-
-abiotic_plot |> 
-  dplyr::select(plot_name, aspect_raw, aspect_sin, aspect_cos) |> 
-  summary()
-
-aspect_cos_rast <- cos(aspect_rast * pi / 180) |> 
-  crop(aoi)
-aspect_sin_rast <- sin(aspect_rast * pi / 180) |> 
-  crop(aoi)
-#### raster twi (calculating)#########################################################
+dem_rast        <- rast("data/elevation_arcticdem-30_32622.tif")
+ndvi_rast       <- rast("data/ndvi_export_2025.tif")
+ndwi_rast       <- rast("data/ndwi.tif")
+snowfree_rast   <- rast("data/snow_free_days.tif")
+slope_rast      <- terrain(dem_rast, v = "slope", unit = "degrees")
+aspect_rast     <- terrain(dem_rast, v = "aspect", unit = "degrees")
+aspect_cos_rast <- cos(aspect_rast * pi / 180)
+aspect_sin_rast <- sin(aspect_rast * pi / 180)
+  
+#### raster twi (calculating) ##################################################
 
 wbt_fill_depressions("data/dem_crop.tif", "data/dem_filled.tif")
 wbt_d8_flow_accumulation("data/dem_filled.tif", "data/sca.tif")
@@ -316,35 +231,45 @@ wbt_wetness_index(
 
 twi_rast <- rast("data/twi_calculated.tif")
 
-abiotic_plot <- abiotic_plot |>
-  mutate(twi = terra::extract(twi_rast, plots_sf)[, 2])
-
-abiotic_plot |> 
-  dplyr::select(plot_name, twi) |> 
-  summary()
-
-#### processing all rastera ####################################################
+#### processing all rasters ####################################################
 
 # Define reference raster - everything gets matched to this
 ref_rast <- rast("data/ndvi_export_2025.tif") |>
   project("EPSG:32622") |>
   crop(aoi)
 
-sapply(list(dem_rast, ndvi_rast, ndwi_rast, snowfree_rast, 
-            twi_rast, slope_rast, aspect_sin_rast, aspect_cos_rast),
+rast_dem_proc        <- dem_rast |> process_rast()
+rast_ndvi_proc       <- ndvi_rast |> process_rast()
+rast_ndwi_proc       <- ndwi_rast |> process_rast()
+rast_snowfree_proc   <- snowfree_rast |> process_rast()
+rast_slope_proc      <- slope_rast |> process_rast()
+rast_aspect_proc     <- aspect_rast |> process_rast()
+rast_aspect_cos_proc <- aspect_cos_rast |> process_rast()
+rast_aspect_sin_proc <- aspect_sin_rast |> process_rast()
+rast_twi_proc        <- twi_rast |> process_rast()
+
+sapply(list(rast_dem_proc, 
+            rast_ndvi_proc, 
+            rast_ndwi_proc, 
+            rast_snowfree_proc,
+            rast_slope_proc,
+            rast_aspect_proc,
+            rast_aspect_cos_proc,
+            rast_aspect_sin_proc
+            ),
        function(r) crs(r, describe = TRUE)$code)
 
 abiotic_plot <- abiotic_plot |>
   mutate(
-    ndvi      = terra::extract(ndvi_rast,       plots_sf)[, 2],
-    ndwi      = terra::extract(ndwi_rast,       plots_sf)[, 2],
-    elevation = terra::extract(dem_rast,        plots_sf)[, 2],
-    slope     = terra::extract(slope_rast,      plots_sf)[, 2],
-    aspect_raw = terra::extract(aspect_rast,    plots_sf)[, 2],
-    aspect_sin = terra::extract(aspect_sin_rast,plots_sf)[, 2],
-    aspect_cos = terra::extract(aspect_cos_rast,plots_sf)[, 2],
-    twi       = terra::extract(twi_rast,        plots_sf)[, 2],
-    snowfree  = terra::extract(snowfree_rast,   plots_sf)[, 2]
+    elevation = terra::extract(rast_dem_proc,        plots_sf)[, 2],
+    ndvi      = terra::extract(rast_ndvi_proc,       plots_sf)[, 2],
+    ndwi      = terra::extract(rast_ndwi_proc,       plots_sf)[, 2],
+    snowfree  = terra::extract(rast_snowfree_proc,   plots_sf)[, 2],
+    slope     = terra::extract(rast_slope_proc,      plots_sf)[, 2],
+    aspect_raw = terra::extract(rast_aspect_proc,    plots_sf)[, 2],
+    aspect_cos = terra::extract(rast_aspect_cos_proc,plots_sf)[, 2],
+    aspect_sin = terra::extract(rast_aspect_sin_proc,plots_sf)[, 2],
+    twi       = terra::extract(rast_twi_proc,        plots_sf)[, 2]
   )
 
 #### combining all tms ##########################################################
@@ -382,14 +307,17 @@ summary(abiotic_plot)
 saveRDS(abiotic_plot, "data/abiotic_plot.rds")
 saveRDS(species_matrix, "data/species_matrix.rds")
 saveRDS(species_long, "data/species_long.rds")
-writeRaster(dem_rast, "data/dem_crop.tif", overwrite = TRUE)
-writeRaster(twi_rast, "data/twi_calculated_v2.tif", overwrite = TRUE)
-writeRaster(ndvi_rast, "data/ndvi_crop.tif", overwrite = TRUE)
-writeRaster(slope_rast, "data/slope_crop.tif", overwrite = TRUE)
-writeRaster(aspect_cos_rast, "data/aspect_cos_rast.tif", overwrite = TRUE)
-writeRaster(aspect_sin_rast, "data/aspect_sin_rast.tif", overwrite = TRUE)
-writeRaster(snowfree_rast, "data/snowfree_crop.tif", overwrite = TRUE)
-writeRaster(ndwi_rast, "data/nwdi_crop.tif", overwrite = TRUE)
+
+writeRaster(rast_dem_proc, "data/rast_dem_proc.tif", overwrite = TRUE)
+writeRaster(rast_ndvi_proc, "data/rast_ndvi_proc.tif", overwrite = TRUE)
+writeRaster(rast_ndwi_proc, "data/rast_ndwi_proc.tif", overwrite = TRUE)
+writeRaster(rast_snowfree_proc, "data/rast_snowfree_proc.tif", overwrite = TRUE)
+writeRaster(rast_slope_proc, "data/rast_slope_proc.tif", overwrite = TRUE)
+writeRaster(rast_aspect_proc, "data/rast_aspect_proc.tif", overwrite = TRUE)
+writeRaster(rast_aspect_cos_proc, "data/rast_aspect_cos_proc.tif", overwrite = TRUE)
+writeRaster(rast_aspect_sin_proc, "data/rast_aspect_sin_proc.tif", overwrite = TRUE)
+writeRaster(rast_twi_proc, "data/rast_twi_proc.tif", overwrite = TRUE)
+
 
 ##### interpolation ############################################################
 
