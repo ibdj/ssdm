@@ -16,7 +16,8 @@ library(sf)
 
 #### TO DO #####################################################################
 
-
+# [ ] Both PA and abundance
+# [x] include mdwi instead of twi
 
 #### setup #####################################################################
 
@@ -25,9 +26,21 @@ set.seed(42)
 pred_names <- c("elevation", "slope", "aspect_sin", "aspect_cos", 
                 "ndwi", "temp_predicted", "snowfree")
 
+#### read all rasters ##########################################################
+
+rast_dem_proc        <- rast("data/rast_dem_proc.tif")
+rast_ndvi_proc       <- rast("data/rast_ndvi_proc.tif")
+rast_ndwi_proc       <- rast("data/rast_ndwi_proc.tif")
+rast_snowfree_proc   <- rast("data/rast_snowfree_proc.tif")
+rast_slope_proc      <- rast("data/rast_slope_proc.tif")
+rast_aspect_proc     <- rast("data/rast_aspect_proc.tif")
+rast_aspect_cos_proc <- rast("data/rast_aspect_cos_proc.tif")
+rast_aspect_sin_proc <- rast("data/rast_aspect_sin_proc.tif")
+rast_twi_proc        <- rast("data/rast_twi_proc.tif")
+
 #### prepare plot data #########################################################
 
-read_rds("data/species_frequency.rds")
+species_frequency <- read_rds("data/species_frequency.rds")
 
 # Get modelable species
 modelable_species <- species_frequency |>
@@ -40,6 +53,9 @@ temp_rast_masked <- rast("data/temp_predicted_masked.tif")
 imputed_temp <- terra::extract(temp_rast_masked, 
                                plots_sf)[, 2]
 
+
+species_matrix <- read_rds("data/species_matrix.rds")
+
 # Build predictor + PA matrix
 pa_matrix <- species_matrix |>
   dplyr::select(plot_name, all_of(modelable_species)) |>
@@ -47,7 +63,7 @@ pa_matrix <- species_matrix |>
   left_join(
     abiotic_plot |>
       dplyr::select(plot_name, elevation, slope, aspect_sin, aspect_cos,
-                    twi, soil_tem_ave, snowfree) |>
+                    ndwi, soil_tem_ave, snowfree) |>
       mutate(temp_predicted = ifelse(is.na(soil_tem_ave),
                                      imputed_temp,
                                      soil_tem_ave)) |>
@@ -67,37 +83,14 @@ x_train <- pa_matrix |>
   dplyr::select(all_of(pred_names)) |>
   as.data.frame()
 
-#### read all rasters ##########################################################
-dem_rast         <- rast("data/dem_crop.tif")
-slope_rast       <- rast("data/slope_crop.tif")
-aspect_sin_rast  <- rast("data/aspect_cos_rast.tif")
-aspect_cos_rast  <- rast("data/aspect_sin_rast.tif")
-twi_rast         <- rast("data/twi_calculated.tif")
-ndvi_rast        <- rast("data/ndvi_crop.tif")
-temp_rast_masked <- rast("data/temp_predicted_masked.tif")
-snowfree_rast    <- rast("data/snow_free_days.tif") |>
-  project("EPSG:32622") |>
-  crop(aoi) |>
-  resample(ndvi_rast)
-
-#### prepare raster stack ######################################################
-
-# Resample all rasters to match ndvi_rast (10m reference)
-elev_resamp       <- resample(dem_rast, ndvi_rast)
-slope_resamp      <- resample(slope_rast, ndvi_rast)
-aspect_sin_resamp <- resample(aspect_sin_rast, ndvi_rast)
-aspect_cos_resamp <- resample(aspect_cos_rast, ndvi_rast)
-twi_resamp        <- resample(twi_rast, ndvi_rast)
-temp_resamp       <- resample(temp_rast_masked, ndvi_rast)
-
 # Stack and name to match predictor names
 pred_rast_stack <- c(elev_resamp, slope_resamp, aspect_sin_resamp,
-                     aspect_cos_resamp, twi_resamp, temp_resamp,
-                     snowfree_rast)
+                     aspect_cos_resamp, ndwi_resamp, temp_resamp,
+                     snowfree_resamp)
 
 names(pred_rast_stack) <- pred_names
 
-# Convert to old raster format for embarcadero/dbarts
+  # Convert to old raster format for embarcadero/dbarts
 pred_rast_stack_r <- raster::stack(pred_rast_stack)
 
 # Dataframe for prediction — keep NAs, track complete cases
@@ -284,109 +277,6 @@ ggplot(varimp_long, aes(x = variable, y = species, fill = importance)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         axis.text.y = element_text(face = "italic"))
 
-#### variable importance #######################################################
-r2_results <- map_dfr(modelable_species, function(sp) {
-  predicted <- colMeans(
-    dbarts:::predict.bart(bart_models[[sp]], 
-                          newdata = as.data.frame(x_train))
-  )
-  observed <- pa_matrix[[sp]]
-  
-  # R-squared
-  ss_res <- sum((observed - predicted)^2)
-  ss_tot <- sum((observed - mean(observed))^2)
-  r2 <- 1 - (ss_res / ss_tot)
-  
-  tibble(
-    species = sp,
-    r2 = round(r2, 3),
-    unexplained = round(1 - r2, 3)
-  )
-}) |>
-  arrange(desc(r2))
-
-# Plot stacked bar of explained vs unexplained
-r2_results |>
-  pivot_longer(cols = c(r2, unexplained),
-               names_to = "component",
-               values_to = "value") |>
-  mutate(component = factor(component, 
-                            levels = c("unexplained", "r2"),
-                            labels = c("Unexplained", "Explained")),
-         species = factor(species, levels = r2_results$species)) |>
-  ggplot(aes(x = value, y = species, fill = component)) +
-  geom_bar(stat = "identity") +
-  scale_fill_manual(values = c("Explained" = "#2E75B6", 
-                               "Unexplained" = "#D9D9D9")) +
-  labs(x = "Proportion of variance", y = NULL,
-       fill = NULL,
-       title = "Explained vs unexplained variance per species BART SDM") +
-  theme_minimal() +
-  theme(axis.text.y = element_text(face = "italic"))
-
-### expl. vs. unexpl. ###############
-
-# R2 drop when each variable is excluded
-varimp_r2 <- map_dfr(modelable_species, function(sp) {
-  observed <- pa_matrix[[sp]]
-  
-  # Full model R2
-  full_pred <- colMeans(dbarts:::predict.bart(bart_models[[sp]], 
-                                              newdata = as.data.frame(x_train)))
-  ss_tot <- sum((observed - mean(observed))^2)
-  r2_full <- 1 - sum((observed - full_pred)^2) / ss_tot
-  
-  # R2 drop per variable
-  map_dfr(pred_names, function(var) {
-    x_reduced <- x_train
-    x_reduced[[var]] <- mean(x_train[[var]], na.rm = TRUE)  # replace with mean
-    
-    red_pred <- colMeans(dbarts:::predict.bart(bart_models[[sp]], 
-                                               newdata = as.data.frame(x_reduced)))
-    r2_reduced <- 1 - sum((observed - red_pred)^2) / ss_tot
-    
-    tibble(species = sp, variable = var, 
-           r2_drop = max(0, r2_full - r2_reduced))
-  })
-})
-
-
-# Recalculate unexplained from r2_results
-unexplained <- r2_results |>
-  mutate(variable = "Unexplained",
-         r2_drop = 1 - r2)
-
-# Combine
-plot_data <- varimp_r2 |>
-  dplyr::select(species, variable, r2_drop) |>
-  bind_rows(dplyr::select(unexplained, species, variable, r2_drop)) |>
-  mutate(
-    species = factor(species, levels = r2_results$species),
-    variable = factor(variable, levels = c("Unexplained", rev(pred_names)))
-  )
-
-# Plot
-ggplot(plot_data, aes(x = r2_drop, y = species, fill = variable)) +
-  geom_bar(stat = "identity") +
-  scale_fill_manual(
-    values = c(
-      "Unexplained"    = "#D9D9D9",
-      "elevation"      = "#1f77b4",
-      "slope"          = "#ff7f0e",
-      "aspect_sin"     = "#2ca02c",
-      "aspect_cos"     = "#d62728",
-      "twi"            = "#9467bd",
-      "temp_predicted" = "#8c564b",
-      "snowfree"       = "#e377c2"
-    )
-  ) +
-  labs(x = "Proportion of variance", y = NULL,
-       fill = "Variable",
-       title = "Explained variance partitioned by predictor") +
-  theme_minimal() +
-  theme(axis.text.y = element_text(face = "italic"))
-
-
 # VERSION TWO ##################################################################
 
 # Normalise r2_drop to sum to r2_full per species
@@ -421,7 +311,7 @@ ggplot(plot_data, aes(x = r2_drop_norm, y = species, fill = variable)) +
       "slope"          = "#ff7f0e",
       "aspect_sin"     = "#2ca02c",
       "aspect_cos"     = "#d62728",
-      "twi"            = "#9467bd",
+      "ndwi"           = "#9467bd",
       "temp_predicted" = "#8c564b",
       "snowfree"       = "#e377c2"
     )
