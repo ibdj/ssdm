@@ -34,12 +34,12 @@ bb_to_cover <- function(x) {
   )
 }
 
-# Single processing function
+# Single processing function for rasters
 process_rast <- function(r, ref = ref_rast) {
   r |>
-    project("EPSG:32622") |>
-    crop(aoi) |>
-    resample(ref)
+    project("EPSG:32622") |> #common projection
+    crop(aoi) |>             #cropping
+    resample(ref)            #resampling to the same reference layer
 }
 
 #### loading tms data ##########################################################
@@ -64,8 +64,8 @@ summary(tms_mp)
 raw_BioBasis_Nuuk_PhenologyPlots_Microclimate_2025 <- read_excel("~/Library/CloudStorage/OneDrive-GrønlandsNaturinstitut/General - BioBasis/03_GEM_Database/Datafiler excel/BioBasis_Nuuk_PhenologyPlots_Microclimate_2025.xlsx")
 raw_BioBasis_Nuuk_CFlux_Microclimate_2025 <- read_excel("~/Library/CloudStorage/OneDrive-GrønlandsNaturinstitut/General - BioBasis/03_GEM_Database/Datafiler excel/BioBasis_Nuuk_CFlux_Microclimate_2025.xlsx")
 
-raw_tms_biobasis <- BioBasis_Nuuk_CFlux_Microclimate_2025 |> 
-  bind_rows(BioBasis_Nuuk_PhenologyPlots_Microclimate_2025) |> 
+raw_tms_biobasis <- raw_BioBasis_Nuuk_CFlux_Microclimate_2025 |> 
+  bind_rows(raw_BioBasis_Nuuk_PhenologyPlots_Microclimate_2025) |> 
   filter(month(Date) %in% c(6, 7, 8)) |>  # June-August
   group_by(Plot, Latitude, Longitude) |>
   reframe(
@@ -95,18 +95,18 @@ summary(raw_df_cover)
 #### species matrix ############################################################
 
 # Step 1: pivot just the species names to long
-taxon_names <- df_cover |>
+taxon_names <- raw_df_cover |>
   dplyr::select(plot_name, matches("^taxon_[0-9]+$")) |>
   pivot_longer(-plot_name, names_to = "slot", values_to = "species_name")
 
 # Step 2: pivot just the bb values to long
-taxon_bb <- df_cover |>
+taxon_bb <- raw_df_cover |>
   dplyr::select(plot_name, matches("^taxon_[0-9]+_bb$")) |>
   pivot_longer(-plot_name, names_to = "slot", values_to = "cover") |>
   mutate(slot = str_remove(slot, "_bb$"))
 
 # Step 3: pivot just the height values to long
-taxon_height <- df_cover |>
+taxon_height <- raw_df_cover |>
   dplyr::select(plot_name, matches("^taxon_[0-9]+_height$")) |>
   pivot_longer(-plot_name, names_to = "slot", values_to = "height") |>
   mutate(slot = str_remove(slot, "_height$"))
@@ -152,24 +152,26 @@ sp_cols <- species_matrix |> dplyr::select(-plot_name)
 
 #### abiotic df (field measurements) ################################################################
 
-abiotic_plot <- df_cover |>
+mp_abiotic <- raw_df_cover |>
   left_join(species_matrix |> dplyr::select(plot_name), by = "plot_name") |>
   mutate(
     richness = rowSums(sp_cols > 0),
     shannon = vegan::diversity(sp_cols, index = "shannon")
   )
 
-abiotic_plot <- abiotic_plot |> 
+summary(mp_abiotic)
+
+mp_abiotic <- mp_abiotic |> 
   dplyr::select(plot_name, veg_height_ave, bare_ground_bb, x, y, total_cover, richness, shannon, soil_moi_ave, soil_tem_ave) |> 
   rename(mois_mean_mea = soil_moi_ave,
          temp_mean_mea = soil_tem_ave) |> 
   left_join(tms_mp, by = "plot_name") |> 
   dplyr::select(-plot)
 
-summary(abiotic_plot)
+summary(mp_abiotic)
 
 # Find the plot with NA temp
-na_plot <- abiotic_plot |> 
+na_plot <- mp_abiotic |> 
   filter(is.na(temp_mean_mea))
 
 # Convert to sf and extract from raster
@@ -182,13 +184,13 @@ na_plot_sf
 #### combining all tms ##########################################################
 
 # Extract TMS logger plots with coordinates from abiotic_plot
-tms_own <-  abiotic_plot |>
+tms_mp_own <-  mp_abiotic |>
   filter(!is.na(temp_mean_tms)) |>
   dplyr::select(plot_name, x, y, temp_mean_tms, mois_raw_tms) |>
   rename(Longitude = x, Latitude = y)
 
 # Bind and normalise rmi together (RELATIVE MOISTURE INDEX)
-tms_combined <- bind_rows(tms_own, tms_biobasis |> rename(plot_name = Plot)) |>
+tms_combined <- bind_rows(tms_mp_own, raw_tms_biobasis |> rename(plot_name = Plot)) |>
   mutate(
     rmi_tms = (mois_raw_tms - min(mois_raw_tms)) / 
       (max(mois_raw_tms) - min(mois_raw_tms)) * 100
@@ -216,7 +218,7 @@ print(species_frequency, n = Inf)
 
 #### plots and aoi #############################################################
 
-plots_sf <- abiotic_plot |>
+plots_sf <- mp_abiotic |>
   st_as_sf(coords = c("x", "y"), crs = 4326) |>
   st_transform(32622)
 
@@ -228,18 +230,18 @@ aoi <- plots_sf |>
 
 #### aoi export to python/gee ####################
 
-aoi_sf <- plots_sf |>
-  st_bbox() |>
-  st_as_sfc() |>
-  st_buffer(50) |>
-  st_transform(4326)  # GEE needs WGS84
-
-st_write(aoi_sf, "data/aoi.shp", delete_dsn = TRUE)
-#This creates 4 files (.shp, .shx, .dbf, .prj) — you need to upload all four to GEE as a zip:
-  # Zip all shapefile components for GEE upload
-zip("data/aoi.zip", 
-    files = c("data/aoi.shp", "data/aoi.shx", 
-              "data/aoi.dbf", "data/aoi.prj"))
+# aoi_sf <- plots_sf |>
+#   st_bbox() |>
+#   st_as_sfc() |>
+#   st_buffer(50) |>
+#   st_transform(4326)  # GEE needs WGS84
+# 
+# st_write(aoi_sf, "data/aoi.shp", delete_dsn = TRUE)
+# #This creates 4 files (.shp, .shx, .dbf, .prj) — you need to upload all four to GEE as a zip:
+#   # Zip all shapefile components for GEE upload
+# zip("data/aoi.zip", 
+#     files = c("data/aoi.shp", "data/aoi.shx", 
+#               "data/aoi.dbf", "data/aoi.prj"))
 
 #### raster import #############################################################
 
@@ -247,13 +249,18 @@ dem_rast        <- rast("data/elevation_arcticdem-30_32622.tif")
 ndvi_rast       <- rast("data/ndvi_export_2025.tif")
 ndwi_rast       <- rast("data/ndwi.tif")
 snowfree_rast   <- rast("data/snow_free_days.tif")
+
 slope_rast      <- terrain(dem_rast, v = "slope", unit = "degrees")
 aspect_rast     <- terrain(dem_rast, v = "aspect", unit = "degrees")
 aspect_cos_rast <- cos(aspect_rast * pi / 180)
 aspect_sin_rast <- sin(aspect_rast * pi / 180)
 
 summary(ndwi_rast)
-#### raster processing 1 #######################################################
+
+#### raster solar radiation ####################################################
+
+#### raster standardising 1 ####################################################
+
 # Define reference raster - everything gets matched to this
 ref_rast <- rast("data/ndvi_export_2025.tif") |>
   project("EPSG:32622") |>
@@ -276,23 +283,23 @@ sapply(list(rast_dem_proc,
             rast_aspect_proc,
             rast_aspect_cos_proc,
             rast_aspect_sin_proc
-#            rast_twi_proc,
-#            rast_temp_proc
-),
+            ),
 function(r) crs(r, describe = TRUE)$code)
 
 #### raster twi (calculating) ##################################################
 
-wbt_fill_depressions("data/dem_crop.tif", "data/dem_filled.tif")
-wbt_d8_flow_accumulation("data/dem_filled.tif", "data/sca.tif")
-wbt_slope("data/dem_filled.tif", "data/slope_wb.tif", units = "degrees")
-wbt_wetness_index(
-  sca = "data/sca.tif",
-  slope = "data/slope_wb.tif",
-  output = "data/twi_calculated.tif"
-)
+#commented out because I will use ndwi instead
 
-twi_rast <- rast("data/twi_calculated.tif")
+# wbt_fill_depressions("data/dem_crop.tif", "data/dem_filled.tif")
+# wbt_d8_flow_accumulation("data/dem_filled.tif", "data/sca.tif")
+# wbt_slope("data/dem_filled.tif", "data/slope_wb.tif", units = "degrees")
+# wbt_wetness_index(
+#   sca = "data/sca.tif",
+#   slope = "data/slope_wb.tif",
+#   output = "data/twi_calculated.tif"
+# )
+# 
+# twi_rast <- rast("data/twi_calculated.tif")
 
 #### sampling all imported rasters #############################################
 
