@@ -17,6 +17,7 @@ library(raster)
 library(caret)
 library(GGally) # to make correlation plots for the soil moisture
 library(spatialEco)
+library(car)
 
 #### functions #################################################################
 
@@ -258,7 +259,25 @@ aspect_sin_rast <- sin(aspect_rast * pi / 180)
 
 summary(ndwi_rast)
 
-#### raster solar radiation ####################################################
+#### raster solar radiation / heat load index ##################################
+
+# install.packages("spatialEco")
+hli <- spatialEco::hli(rast_dem_proc)   # accepts a terra SpatRaster in recent versions
+names(hli) <- "hli"
+plot(hli)
+
+#### topographic position index / tpi ##########################################
+
+#Positive = ridge/convexity, negative = valley/concavity (cold-air collection). 
+#The radius is the key decision: 100 m captures fine hollows, a few hundred metres captures broader valley position.
+
+# circular neighbourhood; d is in MAP UNITS (metres if you projected to UTM)
+w <- focalMat(rast_dem_proc, d = 100, type = "circle")   # weights sum to 1
+nbhd_mean <- focal(rast_dem_proc, w = w, fun = "sum", na.rm = TRUE)
+tpi <- rast_dem_proc - nbhd_mean
+names(tpi) <- "tpi"
+
+plot(tpi)
 
 #### raster standardising 1 ####################################################
 
@@ -275,6 +294,8 @@ rast_slope_proc      <- slope_rast |> process_rast()
 rast_aspect_proc     <- aspect_rast |> process_rast()
 rast_aspect_cos_proc <- aspect_cos_rast |> process_rast()
 rast_aspect_sin_proc <- aspect_sin_rast |> process_rast()
+rast_tpi_proc        <- tpi |> process_rast()
+rast_hli_proc        <- hli |> process_rast()
 
 sapply(list(rast_dem_proc, 
             rast_ndvi_proc, 
@@ -283,7 +304,9 @@ sapply(list(rast_dem_proc,
             rast_slope_proc,
             rast_aspect_proc,
             rast_aspect_cos_proc,
-            rast_aspect_sin_proc
+            rast_aspect_sin_proc,
+            rast_tpi_proc,
+            rast_hli_proc
             ),
 function(r) crs(r, describe = TRUE)$code)
 
@@ -314,6 +337,8 @@ tms_combined <- tms_combined |>
     aspect_raw = terra::extract(rast_aspect_proc,     tms_combined_sf)[, 2],
     aspect_cos = terra::extract(rast_aspect_cos_proc, tms_combined_sf)[, 2],
     aspect_sin = terra::extract(rast_aspect_sin_proc, tms_combined_sf)[, 2],
+    tpi        = terra::extract(rast_tpi_proc,        tms_combined_sf)[, 2],
+    hli        = terra::extract(rast_hli_proc,        tms_combined_sf)[, 2]
   )
 
 summary(tms_combined)
