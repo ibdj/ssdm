@@ -16,6 +16,7 @@ library(dbarts)
 library(raster)
 library(caret)
 library(GGally) # to make correlation plots for the soil moisture
+library(spatialEco)
 
 #### functions #################################################################
 
