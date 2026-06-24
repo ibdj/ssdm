@@ -14,6 +14,8 @@ library(embarcadero)
 library(pROC)
 library(dbarts)
 library(raster)
+library(caret)
+library(GGally) # to make correlation plots for the soil moisture
 
 #### functions #################################################################
 
@@ -42,7 +44,9 @@ process_rast <- function(r, ref = ref_rast) {
 
 #### loading tms data ##########################################################
 
-tms_mp <- readRDS("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/tms_pivot.rds") |> 
+raw_tms_mp <- readRDS("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/tms_pivot.rds")
+
+tms_mp <- raw_tms_mp |> 
   clean_names() |> 
   filter(level == "t1_below6cm") |>          # soil temperature only
   filter(month(date) %in% c(6, 7, 8)) |>  # June-August         # June-August
@@ -57,10 +61,10 @@ tms_mp <- readRDS("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlan
 
 summary(tms_mp)
 
-BioBasis_Nuuk_PhenologyPlots_Microclimate_2025 <- read_excel("~/Library/CloudStorage/OneDrive-GrønlandsNaturinstitut/General - BioBasis/03_GEM_Database/Datafiler excel/BioBasis_Nuuk_PhenologyPlots_Microclimate_2025.xlsx")
-BioBasis_Nuuk_CFlux_Microclimate_2025 <- read_excel("~/Library/CloudStorage/OneDrive-GrønlandsNaturinstitut/General - BioBasis/03_GEM_Database/Datafiler excel/BioBasis_Nuuk_CFlux_Microclimate_2025.xlsx")
+raw_BioBasis_Nuuk_PhenologyPlots_Microclimate_2025 <- read_excel("~/Library/CloudStorage/OneDrive-GrønlandsNaturinstitut/General - BioBasis/03_GEM_Database/Datafiler excel/BioBasis_Nuuk_PhenologyPlots_Microclimate_2025.xlsx")
+raw_BioBasis_Nuuk_CFlux_Microclimate_2025 <- read_excel("~/Library/CloudStorage/OneDrive-GrønlandsNaturinstitut/General - BioBasis/03_GEM_Database/Datafiler excel/BioBasis_Nuuk_CFlux_Microclimate_2025.xlsx")
 
-tms_biobasis <- BioBasis_Nuuk_CFlux_Microclimate_2025 |> 
+raw_tms_biobasis <- BioBasis_Nuuk_CFlux_Microclimate_2025 |> 
   bind_rows(BioBasis_Nuuk_PhenologyPlots_Microclimate_2025) |> 
   filter(month(Date) %in% c(6, 7, 8)) |>  # June-August
   group_by(Plot, Latitude, Longitude) |>
@@ -69,25 +73,25 @@ tms_biobasis <- BioBasis_Nuuk_CFlux_Microclimate_2025 |>
     mois_raw_tms = mean(Raw_soil_moisture, na.rm = TRUE)
   )
 
-summary(tms_biobasis)
+summary(raw_tms_biobasis)
 
-samples_qgis <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/samples_qgis.csv") |> 
+raw_samples_qgis <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/samples_qgis.csv") |> 
   dplyr::select(plot, X, Y, elevation, ndvi, ndwi) |> 
   mutate(plot_name = plot) |> 
   left_join(tms_mp, by = "plot_name") |> 
   rename(plot = plot.x, plot_tms = plot.y)
 
-names(samples_qgis)
+names(raw_samples_qgis)
 
-df_raw <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/samples.csv", col_types = cols(Date = col_datetime(format = "%m/%d/%Y %H.%M"))) |> 
+raw_qgis_samples <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/samples.csv", col_types = cols(Date = col_datetime(format = "%m/%d/%Y %H.%M"))) |> 
   clean_names() |> 
   mutate(rowid = row_number(), plot_name = toupper(plot_name))
 
-df_cover <- df_raw |> 
+raw_df_cover <- raw_qgis_samples |> 
  mutate(across(ends_with("_bb"), bb_to_cover)) |> 
   mutate(total_cover = rowSums(across(ends_with("_bb")), na.rm = TRUE))
 
-summary(df_cover)
+summary(raw_df_cover)
 #### species matrix ############################################################
 
 # Step 1: pivot just the species names to long
@@ -144,11 +148,9 @@ species_matrix <- species_long |>
     values_fill = 0
   )
 
-
-
 sp_cols <- species_matrix |> dplyr::select(-plot_name)
 
-#### abiotic df ################################################################
+#### abiotic df (field measurements) ################################################################
 
 abiotic_plot <- df_cover |>
   left_join(species_matrix |> dplyr::select(plot_name), by = "plot_name") |>
@@ -186,7 +188,7 @@ tms_own <-  abiotic_plot |>
   rename(Longitude = x, Latitude = y)
 
 # Bind and normalise rmi together (RELATIVE MOISTURE INDEX)
-tms_combined <- bind_rows(tms_own, tms_biobasis) |>
+tms_combined <- bind_rows(tms_own, tms_biobasis |> rename(plot_name = Plot)) |>
   mutate(
     rmi_tms = (mois_raw_tms - min(mois_raw_tms)) / 
       (max(mois_raw_tms) - min(mois_raw_tms)) * 100
@@ -224,7 +226,22 @@ aoi <- plots_sf |>
   st_buffer(50) |>
   vect()  # convert to terra format for cropping
 
-#### raster imports ############################################################
+#### aoi export to python/gee ####################
+
+aoi_sf <- plots_sf |>
+  st_bbox() |>
+  st_as_sfc() |>
+  st_buffer(50) |>
+  st_transform(4326)  # GEE needs WGS84
+
+st_write(aoi_sf, "data/aoi.shp", delete_dsn = TRUE)
+#This creates 4 files (.shp, .shx, .dbf, .prj) — you need to upload all four to GEE as a zip:
+  # Zip all shapefile components for GEE upload
+zip("data/aoi.zip", 
+    files = c("data/aoi.shp", "data/aoi.shx", 
+              "data/aoi.dbf", "data/aoi.prj"))
+
+#### raster import #############################################################
 
 dem_rast        <- rast("data/elevation_arcticdem-30_32622.tif")
 ndvi_rast       <- rast("data/ndvi_export_2025.tif")
@@ -234,141 +251,9 @@ slope_rast      <- terrain(dem_rast, v = "slope", unit = "degrees")
 aspect_rast     <- terrain(dem_rast, v = "aspect", unit = "degrees")
 aspect_cos_rast <- cos(aspect_rast * pi / 180)
 aspect_sin_rast <- sin(aspect_rast * pi / 180)
-  
-#### raster twi (calculating) ##################################################
 
-wbt_fill_depressions("data/dem_crop.tif", "data/dem_filled.tif")
-wbt_d8_flow_accumulation("data/dem_filled.tif", "data/sca.tif")
-wbt_slope("data/dem_filled.tif", "data/slope_wb.tif", units = "degrees")
-wbt_wetness_index(
-  sca = "data/sca.tif",
-  slope = "data/slope_wb.tif",
-  output = "data/twi_calculated.tif"
-)
-
-twi_rast <- rast("data/twi_calculated.tif")
-
-#### raster temp (interpolation) ###############################################
-
-
-tms_combined <- tms_combined |>
-  mutate(
-    elevation  = terra::extract(rast_dem_proc,        tms_combined_sf)[, 2],
-    ndvi       = terra::extract(rast_ndvi_proc,       tms_combined_sf)[, 2],
-    ndwi       = terra::extract(rast_ndwi_proc,       tms_combined_sf)[, 2],
-    snowfree   = terra::extract(rast_snowfree_proc,   tms_combined_sf)[, 2],
-    slope      = terra::extract(rast_slope_proc,      tms_combined_sf)[, 2],
-    aspect_raw = terra::extract(rast_aspect_proc,     tms_combined_sf)[, 2],
-    aspect_cos = terra::extract(rast_aspect_cos_proc, tms_combined_sf)[, 2],
-    aspect_sin = terra::extract(rast_aspect_sin_proc, tms_combined_sf)[, 2],
-    twi        = terra::extract(rast_twi_proc,        tms_combined_sf)[, 2],
-    temp       = terra::extract(rast_temp_proc,       tms_combined_sf)[, 2]
-  )
-
-tms_combined <- tms_combined |> 
-  left_join(samples_qgis |> dplyr::select(plot_name, ndvi), by = "plot_name")
-
-# Step 1: fit linear model on combined logger data
-temp_lm <- lm(temp_mean_tms ~ ndvi + aspect_cos + aspect_sin, 
-              data = tms_combined)
-
-summary(temp_lm)
-
-# Add residuals to combined logger data
-tms_combined <- tms_combined |>
-  mutate(temp_resid = residuals(temp_lm))
-
-# Convert to sf for variogram
-tms_combined_sf <- tms_combined |>
-  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) |>
-  st_transform(32622)
-
-# Compute variogram of residuals
-vgm_temp <- variogram(temp_resid ~ 1, data = tms_combined_sf)
-plot(vgm_temp)
-
-# Now stack
-pred_stack <- c(rast_ndvi_proc, rast_aspect_cos_proc, rast_aspect_sin_proc)
-names(pred_stack) <- c("ndvi", "aspect_cos", "aspect_sin")
-
-# Project
-temp_rast <- predict(pred_stack, temp_lm)
-plot(temp_rast)
-
-#temp_rast_masked <- mask(temp_rast, ndvi_rast < 0.1, maskvalue = TRUE)
-#plot(temp_rast_masked)
-#writeRaster(temp_rast_masked, "data/temp_predicted_rast.tif", overwrite = TRUE)
-
-#### raster moisture (interpolation) ####################################################
-
-moisture_sf <- abiotic_plot |>
-  filter(!is.na(soil_moi_ave)) |>
-  st_as_sf(coords = c("x", "y"), crs = 4326) |>
-  st_transform(32622)
-
-vgm_moist <- variogram(soil_moi_ave ~ 1, data = moisture_sf)
-plot(vgm_moist)
-vgm_moist_fit <- fit.variogram(vgm_moist, 
-                               model = vgm(psill = 300, 
-                                           model = "Sph", 
-                                           range = 800, 
-                                           nugget = 150))
-plot(vgm_moist, vgm_moist_fit)
-
-# Create prediction grid from raster extent
-pred_grid <- as.points(ndvi_rast) |>
-  st_as_sf() |>
-  st_transform(32622)
-
-# Run ordinary kriging
-moist_krige <- krige(
-  formula = soil_moi_ave ~ 1,
-  locations = moisture_sf,
-  newdata = pred_grid,
-  model = vgm_moist_fit
-)
-
-# Check what moist_krige looks like
-class(moist_krige)
-head(moist_krige)
-nrow(moist_krige)
-summary(moist_krige$var1.pred)
-
-# Extract coordinates and predictions
-moist_df <- st_coordinates(moist_krige) |>
-  as.data.frame() |>
-  mutate(moisture = moist_krige$var1.pred)
-
-# Convert to raster
-moist_rast <- rast(moist_df, type = "xyz", crs = crs(ndvi_rast))
-
-# # Check
-print(moist_rast)
-summary(moist_rast)
-plot(moist_rast)
-
-# Mask water bodies same as temperature
-moist_rast_masked <- mask(moist_rast, ndvi_rast < 0.1, maskvalue = TRUE)
-
-plot(moist_rast_masked)
-
-# Simple regression on NDVI first
-moist_lm4 <- lm(soil_moi_ave ~ ndvi + twi + elevation, data = abiotic_plot)
-summary(moist_lm4)
-
-# Prepare data - use all available predictors
-moist_bart <- bart(
-  x.train = abiotic_plot |> 
-    dplyr::select(ndvi, twi, elevation, slope, aspect_sin, aspect_cos, snowfree) |>
-    as.data.frame(),
-  y.train = abiotic_plot$soil_moi_ave,
-  keeptrees = TRUE
-)
-
-summary(moist_bart)
-
-#### processing all rasters ####################################################
-
+summary(ndwi_rast)
+#### raster processing 1 #######################################################
 # Define reference raster - everything gets matched to this
 ref_rast <- rast("data/ndvi_export_2025.tif") |>
   project("EPSG:32622") |>
@@ -382,8 +267,6 @@ rast_slope_proc      <- slope_rast |> process_rast()
 rast_aspect_proc     <- aspect_rast |> process_rast()
 rast_aspect_cos_proc <- aspect_cos_rast |> process_rast()
 rast_aspect_sin_proc <- aspect_sin_rast |> process_rast()
-rast_twi_proc        <- twi_rast |> process_rast()
-rast_temp_proc       <- temp_rast |> process_rast()
 
 sapply(list(rast_dem_proc, 
             rast_ndvi_proc, 
@@ -392,25 +275,97 @@ sapply(list(rast_dem_proc,
             rast_slope_proc,
             rast_aspect_proc,
             rast_aspect_cos_proc,
-            rast_aspect_sin_proc,
-            rast_twi_proc,
-            rast_temp_proc
-            ),
-       function(r) crs(r, describe = TRUE)$code)
+            rast_aspect_sin_proc
+#            rast_twi_proc,
+#            rast_temp_proc
+),
+function(r) crs(r, describe = TRUE)$code)
 
-abiotic_plot <- abiotic_plot |>
+#### raster twi (calculating) ##################################################
+
+wbt_fill_depressions("data/dem_crop.tif", "data/dem_filled.tif")
+wbt_d8_flow_accumulation("data/dem_filled.tif", "data/sca.tif")
+wbt_slope("data/dem_filled.tif", "data/slope_wb.tif", units = "degrees")
+wbt_wetness_index(
+  sca = "data/sca.tif",
+  slope = "data/slope_wb.tif",
+  output = "data/twi_calculated.tif"
+)
+
+twi_rast <- rast("data/twi_calculated.tif")
+
+#### sampling all imported rasters #############################################
+
+tms_combined <- tms_combined |>
   mutate(
-    elevation  = terra::extract(rast_dem_proc,        plots_sf)[, 2],
-    ndvi       = terra::extract(rast_ndvi_proc,       plots_sf)[, 2],
-    ndwi       = terra::extract(rast_ndwi_proc,       plots_sf)[, 2],
-    snowfree   = terra::extract(rast_snowfree_proc,   plots_sf)[, 2],
-    slope      = terra::extract(rast_slope_proc,      plots_sf)[, 2],
-    aspect_raw = terra::extract(rast_aspect_proc,     plots_sf)[, 2],
-    aspect_cos = terra::extract(rast_aspect_cos_proc, plots_sf)[, 2],
-    aspect_sin = terra::extract(rast_aspect_sin_proc, plots_sf)[, 2],
-    twi        = terra::extract(rast_twi_proc,        plots_sf)[, 2],
-    temp       = terra::extract(rast_temp_proc,       plots_sf)[, 2]
+    elevation  = terra::extract(rast_dem_proc,        tms_combined_sf)[, 2],
+    ndvi       = terra::extract(rast_ndvi_proc,       tms_combined_sf)[, 2],
+    ndwi       = terra::extract(rast_ndwi_proc,       tms_combined_sf)[, 2],
+    snowfree   = terra::extract(rast_snowfree_proc,   tms_combined_sf)[, 2],
+    slope      = terra::extract(rast_slope_proc,      tms_combined_sf)[, 2],
+    aspect_raw = terra::extract(rast_aspect_proc,     tms_combined_sf)[, 2],
+    aspect_cos = terra::extract(rast_aspect_cos_proc, tms_combined_sf)[, 2],
+    aspect_sin = terra::extract(rast_aspect_sin_proc, tms_combined_sf)[, 2],
   )
+
+summary(tms_combined)
+
+#### raster temp (interpolation) ###############################################
+
+# Step 1: fit linear model on combined logger data
+temp_lm <- lm(temp_mean_tms ~ ndvi + aspect_cos + aspect_sin + elevation, 
+              data = tms_combined)
+
+summary(temp_lm)
+
+# Standard linear model diagnostic plots
+par(mfrow = c(2, 2))
+plot(temp_lm)
+par(mfrow = c(1, 1))
+
+# Add residuals to combined logger data
+tms_combined_sf <- tms_combined_sf |>
+  mutate(temp_resid = residuals(temp_lm))
+
+# Compute variogram of residuals
+vgm_temp <- variogram(temp_resid ~ 1, data = tms_combined_sf)
+plot(vgm_temp)
+
+# Now stack
+pred_stack <- c(rast_ndvi_proc, rast_aspect_cos_proc, rast_aspect_sin_proc, rast_dem_proc)
+names(pred_stack) <- c("ndvi", "aspect_cos", "aspect_sin", "elevation")
+
+# Project
+temp_rast <- predict(pred_stack, temp_lm)
+plot(temp_rast)
+
+#### raster moisture (just checking the bad correlation) #######################
+
+my_scatter <- function(data, mapping, ...) {
+  ggplot(data = data, mapping = mapping) +
+    geom_point(alpha = 0.6, size = 1.5) +
+    geom_smooth(method = "lm", se = TRUE, 
+                colour = "red", linewidth = 0.8)
+}
+
+tms_combined |> 
+  dplyr::select(
+    `RMI (logger)` = rmi_tms,
+    `Soil moisture (field)` = mois_mean_mea,
+    `NDWI` = ndwi
+  ) |>
+  ggpairs(
+    upper = list(continuous = wrap("cor", size = 4)),
+    lower = list(continuous = my_scatter),
+    diag  = list(continuous = wrap("densityDiag"))
+  ) +
+  labs(title = "Correlation between moisture measures") +
+  theme_minimal()
+
+#### raster processing 2 #######################################################
+
+rast_twi_proc        <- twi_rast |> process_rast()
+rast_temp_proc       <- temp_rast |> process_rast()
 
 #### checking the nas ##########################################################
 
@@ -475,7 +430,21 @@ abiotic_plot <- abiotic_plot |>
 # Verify no more NAs
 sum(is.na(abiotic_plot$temp_predicted))
 
+#### raster sampling ###########################################################
 
+abiotic_plot <- abiotic_plot |>
+  mutate(
+    elevation  = terra::extract(rast_dem_proc,        plots_sf)[, 2],
+    ndvi       = terra::extract(rast_ndvi_proc,       plots_sf)[, 2],
+    ndwi       = terra::extract(rast_ndwi_proc,       plots_sf)[, 2],
+    snowfree   = terra::extract(rast_snowfree_proc,   plots_sf)[, 2],
+    slope      = terra::extract(rast_slope_proc,      plots_sf)[, 2],
+    aspect_raw = terra::extract(rast_aspect_proc,     plots_sf)[, 2],
+    aspect_cos = terra::extract(rast_aspect_cos_proc, plots_sf)[, 2],
+    aspect_sin = terra::extract(rast_aspect_sin_proc, plots_sf)[, 2],
+    twi        = terra::extract(rast_twi_proc,        plots_sf)[, 2],
+    temp       = terra::extract(rast_temp_proc,       plots_sf)[, 2]
+  )
 #### writing all data files ####################################################
 saveRDS(abiotic_plot, "data/abiotic_plot.rds")
 saveRDS(species_matrix, "data/species_matrix.rds")
