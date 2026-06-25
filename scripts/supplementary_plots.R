@@ -1,3 +1,5 @@
+library(clhs)
+
 # --- Step 1: build the candidate pool ---
 
 # stack the three placement layers (already masked to aoi_masked, EPSG:32622)
@@ -16,3 +18,17 @@ nearest_dist <- st_distance(cand_sf, plots_sf) |>
 
 cand <- cand[nearest_dist >= 10, ]           # keep cells >=10 m from existing plots
 nrow(cand)   # eligible cells after exclusion
+
+set.seed(42)   # reproducible; recorded in script
+
+res <- clhs(
+  cand[, c("elevation", "hli", "ndvi")],   # only the placement vars
+  size = 50,
+  iter = 10000,
+  progress = FALSE,
+  simple = FALSE
+)
+
+# pull selected rows (with coordinates) back out
+sel <- cand[res$index_samples, ]
+nrow(sel)   # should be 50
