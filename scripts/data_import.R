@@ -230,6 +230,15 @@ aoi <- plots_sf |>
   st_buffer(50) |>
   vect()  # convert to terra format for cropping
 
+
+  gpkg <- "/Users/ibdj/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/gis/aoi_small.gpkg"
+  
+  # see what layers the gpkg contains
+  vector_layers(gpkg)
+  aoi_masked <- vect(gpkg) 
+  crs(aoi_masked, describe = TRUE)$code
+  plot(gpkg)
+
 #### aoi export to python/gee ####################
 
 # aoi_sf <- plots_sf |>
@@ -284,7 +293,7 @@ plot(tpi)
 # Define reference raster - everything gets matched to this
 ref_rast <- rast("data/ndvi_export_2025.tif") |>
   project("EPSG:32622") |>
-  crop(aoi)
+  crop(aoi_masked)
 
 rast_dem_proc        <- dem_rast |> process_rast()
 rast_ndvi_proc       <- ndvi_rast |> process_rast()
@@ -296,6 +305,7 @@ rast_aspect_cos_proc <- aspect_cos_rast |> process_rast()
 rast_aspect_sin_proc <- aspect_sin_rast |> process_rast()
 rast_tpi_proc        <- tpi |> process_rast()
 rast_hli_proc        <- hli |> process_rast()
+rast_temp_proc       <- temp_rast |> process_rast()
 
 sapply(list(rast_dem_proc, 
             rast_ndvi_proc, 
@@ -306,7 +316,8 @@ sapply(list(rast_dem_proc,
             rast_aspect_cos_proc,
             rast_aspect_sin_proc,
             rast_tpi_proc,
-            rast_hli_proc
+            rast_hli_proc,
+            rast_temp_proc
             ),
 function(r) crs(r, describe = TRUE)$code)
 
@@ -345,8 +356,69 @@ summary(tms_combined)
 
 #### raster temp (interpolation) ###############################################
 
+#checking for multicolenearity
+cand <- c("elevation", "hli", "tpi", "ndvi", "ndwi", "snowfree")
+
+round(cor(tms_combined[, cand]), 2)
+
+# VIF on the full candidate model
+full <- lm(temp_mean_tms ~ elevation + hli + tpi + ndvi + ndwi + snowfree,
+           data = tms_combined)
+vif(full)
+
+# 3. Build UP from the physical core, add only if CV-RMSE meaningfully drops
+
+ctrl <- trainControl(method = "LOOCV", allowParallel = FALSE)
+
+# candidate pool — hli chosen over the aspect/slope trio it's built from
+preds <- c("elevation", "hli", "tpi", "ndvi", "ndwi", "snowfree")
+
+# every non-empty subset
+combos <- unlist(
+  lapply(1:length(preds), \(k) combn(preds, k, simplify = FALSE)),
+  recursive = FALSE
+)
+
+results <- sapply(combos, function(vars) {
+  f <- reformulate(vars, response = "temp_mean_tms")
+  train(f, data = tms_combined, method = "lm", trControl = ctrl)$results$RMSE
+})
+
+out <- data.frame(
+  vars = sapply(combos, paste, collapse = " + "),
+  n    = sapply(combos, length),
+  RMSE = results
+)
+out[order(out$RMSE), ] |> head()   # 10 best by CV-RMSE
+
+# making a plot to visualise the lowest RMSE
+
+plot(out$n, out$RMSE,
+     pch = 16, col = adjustcolor("grey60", 0.5),
+     xlab = "Number of predictors", ylab = "LOOCV RMSE (°C)",
+     main = "All models vs. best-at-each-size", xaxt = "n")
+axis(1, at = sort(unique(out$n)))
+
+plateau <- aggregate(RMSE ~ n, data = out, FUN = min)
+lines(plateau$n, plateau$RMSE, type = "b", pch = 19, lwd = 2, col = "steelblue")
+abline(v = 3, lty = 2, col = "darkorange", lwd = 2)
+legend("topright", bty = "n", cex = 0.85,
+       legend = c("individual models", "best at each size"),
+       pch = c(16, 19), col = c("grey60", "steelblue"))
+
+# label each point with its RMSE
+text(plateau$n, plateau$RMSE,
+     labels = sprintf("%.3f", plateau$RMSE),
+     pos = 3, cex = 0.8)
+
+# Best 3-variable model by CV-RMSE
+best3 <- out[out$n == 3, ]
+best3 <- best3[order(best3$RMSE), ][1, ]
+best3
+
+
 # Step 1: fit linear model on combined logger data
-temp_lm <- lm(temp_mean_tms ~ ndvi + aspect_cos + aspect_sin + elevation, 
+temp_lm <- lm(temp_mean_tms ~ ndvi + hli + elevation, 
               data = tms_combined)
 
 summary(temp_lm)
@@ -365,12 +437,14 @@ vgm_temp <- variogram(temp_resid ~ 1, data = tms_combined_sf)
 plot(vgm_temp)
 
 # Now stack
-pred_stack <- c(rast_ndvi_proc, rast_aspect_cos_proc, rast_aspect_sin_proc, rast_dem_proc)
-names(pred_stack) <- c("ndvi", "aspect_cos", "aspect_sin", "elevation")
+pred_stack <- c(rast_ndvi_proc, rast_dem_proc, rast_hli_proc)
+names(pred_stack) <- c("ndvi", "elevation", "hli")   # match the order above
 
 # Project
 temp_rast <- predict(pred_stack, temp_lm)
 plot(temp_rast)
+
+rast_temp_proc        <- temp_rast |> process_rast()
 
 #### raster moisture (just checking the bad correlation) #######################
 
@@ -394,11 +468,6 @@ tms_combined |>
   ) +
   labs(title = "Correlation between moisture measures") +
   theme_minimal()
-
-#### raster processing 2 #######################################################
-
-rast_twi_proc        <- twi_rast |> process_rast()
-rast_temp_proc       <- temp_rast |> process_rast()
 
 #### checking the nas ##########################################################
 
@@ -465,7 +534,7 @@ sum(is.na(abiotic_plot$temp_predicted))
 
 #### raster sampling ###########################################################
 
-abiotic_plot <- abiotic_plot |>
+mp_abiotic <- mp_abiotic |>
   mutate(
     elevation  = terra::extract(rast_dem_proc,        plots_sf)[, 2],
     ndvi       = terra::extract(rast_ndvi_proc,       plots_sf)[, 2],
@@ -475,8 +544,10 @@ abiotic_plot <- abiotic_plot |>
     aspect_raw = terra::extract(rast_aspect_proc,     plots_sf)[, 2],
     aspect_cos = terra::extract(rast_aspect_cos_proc, plots_sf)[, 2],
     aspect_sin = terra::extract(rast_aspect_sin_proc, plots_sf)[, 2],
-    twi        = terra::extract(rast_twi_proc,        plots_sf)[, 2],
-    temp       = terra::extract(rast_temp_proc,       plots_sf)[, 2]
+#   twi        = terra::extract(rast_twi_proc,        plots_sf)[, 2],
+    temp       = terra::extract(rast_temp_proc,       plots_sf)[, 2],
+    tpi        = terra::extract(rast_tpi_proc,        plots_sf)[, 2],
+    hli        = terra::extract(rast_hli_proc,       plots_sf)[, 2]
   )
 #### writing all data files ####################################################
 saveRDS(abiotic_plot, "data/abiotic_plot.rds")
@@ -493,3 +564,45 @@ writeRaster(rast_aspect_proc, "data/rast_aspect_proc.tif", overwrite = TRUE)
 writeRaster(rast_aspect_cos_proc, "data/rast_aspect_cos_proc.tif", overwrite = TRUE)
 writeRaster(rast_aspect_sin_proc, "data/rast_aspect_sin_proc.tif", overwrite = TRUE)
 writeRaster(rast_twi_proc, "data/rast_twi_proc.tif", overwrite = TRUE)
+writeRaster(rast_hli_proc, "data/rast_hli_proc.tif", overwrite = TRUE)
+writeRaster(rast_tpi_proc, "data/rast_tpi_proc.tif", overwrite = TRUE)
+writeRaster(rast_temp_proc, "data/rast_temp_proc.tif", overwrite = TRUE)
+
+#### looking at the histograms of the variavles ################################
+
+plot(rast_dem_proc)
+plot(rast_ndvi_proc)
+
+rast_list <- list(
+  elevation  = rast_dem_proc,
+  ndvi       = rast_ndvi_proc,
+  ndwi       = rast_ndwi_proc,
+  snowfree   = rast_snowfree_proc,
+  slope      = rast_slope_proc,
+  aspect_cos = rast_aspect_cos_proc,
+  aspect_sin = rast_aspect_sin_proc,
+  hli        = rast_hli_proc,
+  tpi        = rast_tpi_proc,
+  temp.      = rast_temp_proc
+)
+
+par(mfrow = c(3, 3), mar = c(4, 4, 2, 1))
+
+for (v in names(rast_list)) {
+  # landscape values (AOI-masked raster), subsampled for speed
+  land <- values(rast_list[[v]], na.rm = TRUE)
+  land <- sample(land, min(5000, length(land)))
+  
+  plots <- mp_abiotic[[v]]
+  plots <- plots[!is.na(plots)]
+  
+  dl <- density(land)
+  dp <- density(plots)
+  
+  plot(dl, col = "grey50", lwd = 2, main = v, xlab = v,
+       xlim = range(c(dl$x, dp$x)),
+       ylim = c(0, max(dl$y, dp$y)))   # ensure both curves fit
+  lines(dp, col = "steelblue", lwd = 2)
+}
+
+par(mfrow = c(1, 1))
