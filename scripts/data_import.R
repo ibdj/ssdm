@@ -40,7 +40,7 @@ bb_to_cover <- function(x) {
 process_rast <- function(r, ref = ref_rast) {
   r |>
     project("EPSG:32622") |> #common projection
-    crop(aoi) |>             #cropping
+    mask(aoi_masked) |>             #cropping
     resample(ref)            #resampling to the same reference layer
 }
 
@@ -231,13 +231,13 @@ aoi <- plots_sf |>
   vect()  # convert to terra format for cropping
 
 
-  gpkg <- "/Users/ibdj/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/gis/aoi_small.gpkg"
+  gpkg <- "data/aoi_masked.gpkg"
   
   # see what layers the gpkg contains
   vector_layers(gpkg)
   aoi_masked <- vect(gpkg) 
   crs(aoi_masked, describe = TRUE)$code
-  plot(gpkg)
+  
 
 #### aoi export to python/gee ####################
 
@@ -268,32 +268,12 @@ aspect_sin_rast <- sin(aspect_rast * pi / 180)
 
 summary(ndwi_rast)
 
-#### raster solar radiation / heat load index ##################################
-
-# install.packages("spatialEco")
-hli <- spatialEco::hli(rast_dem_proc)   # accepts a terra SpatRaster in recent versions
-names(hli) <- "hli"
-plot(hli)
-
-#### topographic position index / tpi ##########################################
-
-#Positive = ridge/convexity, negative = valley/concavity (cold-air collection). 
-#The radius is the key decision: 100 m captures fine hollows, a few hundred metres captures broader valley position.
-
-# circular neighbourhood; d is in MAP UNITS (metres if you projected to UTM)
-w <- focalMat(rast_dem_proc, d = 100, type = "circle")   # weights sum to 1
-nbhd_mean <- focal(rast_dem_proc, w = w, fun = "sum", na.rm = TRUE)
-tpi <- rast_dem_proc - nbhd_mean
-names(tpi) <- "tpi"
-
-plot(tpi)
-
 #### raster standardising 1 ####################################################
 
 # Define reference raster - everything gets matched to this
 ref_rast <- rast("data/ndvi_export_2025.tif") |>
   project("EPSG:32622") |>
-  crop(aoi_masked)
+  mask(aoi_masked)
 
 rast_dem_proc        <- dem_rast |> process_rast()
 rast_ndvi_proc       <- ndvi_rast |> process_rast()
@@ -320,6 +300,26 @@ sapply(list(rast_dem_proc,
             rast_temp_proc
             ),
 function(r) crs(r, describe = TRUE)$code)
+
+#### raster solar radiation / heat load index ##################################
+
+# install.packages("spatialEco")
+hli <- spatialEco::hli(rast_dem_proc)   # accepts a terra SpatRaster in recent versions
+names(hli) <- "hli"
+plot(hli)
+
+#### topographic position index / tpi ##########################################
+
+#Positive = ridge/convexity, negative = valley/concavity (cold-air collection). 
+#The radius is the key decision: 100 m captures fine hollows, a few hundred metres captures broader valley position.
+
+# circular neighbourhood; d is in MAP UNITS (metres if you projected to UTM)
+w <- focalMat(rast_dem_proc, d = 100, type = "circle")   # weights sum to 1
+nbhd_mean <- focal(rast_dem_proc, w = w, fun = "sum", na.rm = TRUE)
+tpi <- rast_dem_proc - nbhd_mean
+names(tpi) <- "tpi"
+
+plot(tpi)
 
 #### raster twi (calculating) ##################################################
 
@@ -568,10 +568,7 @@ writeRaster(rast_hli_proc, "data/rast_hli_proc.tif", overwrite = TRUE)
 writeRaster(rast_tpi_proc, "data/rast_tpi_proc.tif", overwrite = TRUE)
 writeRaster(rast_temp_proc, "data/rast_temp_proc.tif", overwrite = TRUE)
 
-#### looking at the histograms of the variavles ################################
-
-plot(rast_dem_proc)
-plot(rast_ndvi_proc)
+#### looking at the histograms of the variables ################################
 
 rast_list <- list(
   elevation  = rast_dem_proc,
@@ -579,30 +576,27 @@ rast_list <- list(
   ndwi       = rast_ndwi_proc,
   snowfree   = rast_snowfree_proc,
   slope      = rast_slope_proc,
-  aspect_cos = rast_aspect_cos_proc,
-  aspect_sin = rast_aspect_sin_proc,
   hli        = rast_hli_proc,
   tpi        = rast_tpi_proc,
-  temp.      = rast_temp_proc
+  temp       = rast_temp_proc
 )
 
 par(mfrow = c(3, 3), mar = c(4, 4, 2, 1))
 
 for (v in names(rast_list)) {
-  # landscape values (AOI-masked raster), subsampled for speed
-  land <- values(rast_list[[v]], na.rm = TRUE)
-  land <- sample(land, min(5000, length(land)))
-  
   plots <- mp_abiotic[[v]]
   plots <- plots[!is.na(plots)]
+  
+  land <- values(rast_list[[v]], na.rm = TRUE)
+  land <- sample(land, min(5000, length(land)))
   
   dl <- density(land)
   dp <- density(plots)
   
   plot(dl, col = "grey50", lwd = 2, main = v, xlab = v,
        xlim = range(c(dl$x, dp$x)),
-       ylim = c(0, max(dl$y, dp$y)))   # ensure both curves fit
-  lines(dp, col = "steelblue", lwd = 2)
+       ylim = c(0, max(dl$y, dp$y)))
+  lines(dp, col = "steelblue", lwd = 2, lty = 2)
 }
 
 par(mfrow = c(1, 1))
