@@ -46,6 +46,8 @@ process_rast <- function(r, ref = ref_rast) {
 
 #### loading tms data ##########################################################
 
+# it is only summer temp! 
+
 raw_tms_mp <- readRDS("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/tms_pivot.rds")
 
 tms_mp <- raw_tms_mp |> 
