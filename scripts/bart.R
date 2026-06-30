@@ -24,7 +24,7 @@ library(sf)
 set.seed(42)
 
 pred_names <- c("elevation", "slope", "aspect_sin", "aspect_cos", 
-                "ndwi", "temp_predicted", "snowfree")
+                "ndwi", "hli", "snowfree")
 
 #### read all rasters ##########################################################
 
@@ -37,6 +37,7 @@ rast_aspect_proc     <- rast("data/rast_aspect_proc.tif")
 rast_aspect_cos_proc <- rast("data/rast_aspect_cos_proc.tif")
 rast_aspect_sin_proc <- rast("data/rast_aspect_sin_proc.tif")
 rast_twi_proc        <- rast("data/rast_twi_proc.tif")
+rast_hli_proc        <- rast("data/rast_hli_proc.tif")
 
 #### prepare plot data #########################################################
 
