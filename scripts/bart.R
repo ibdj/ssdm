@@ -63,7 +63,7 @@ pa_matrix <- species_matrix |>
   mutate(across(-plot_name, ~ as.integer(. > 0))) |>
   left_join(
     abiotic_plot |>
-      dplyr::select(plot_name, elevation, slope, aspect_sin, aspect_cos,
+      dplyr::select(plot_name, elevation, slope, hli,
                     ndwi, soil_tem_ave, snowfree) |>
       mutate(temp_predicted = ifelse(is.na(soil_tem_ave),
                                      imputed_temp,
