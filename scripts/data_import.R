@@ -270,6 +270,14 @@ aspect_sin_rast <- sin(aspect_rast * pi / 180)
 
 summary(ndwi_rast)
 
+#### raster solar radiation / heat load index ##################################
+
+# hli needs to be calculated on the uncropped dem because there will be na cells in hli otherwise
+
+hli <- spatialEco::hli(dem_rast)   # accepts a terra SpatRaster in recent versions
+names(hli) <- "hli"
+plot(hli)
+
 #### raster standardising 1 ####################################################
 
 # Define reference raster - everything gets matched to this
@@ -303,12 +311,6 @@ sapply(list(rast_dem_proc,
             rast_temp_proc
             ),
 function(r) crs(r, describe = TRUE)$code)
-
-#### raster solar radiation / heat load index ##################################
-
-hli <- spatialEco::hli(dem_rast)   # accepts a terra SpatRaster in recent versions
-names(hli) <- "hli"
-plot(hli)
 
 #### topographic position index / tpi ##########################################
 
