@@ -16,7 +16,7 @@ library(dbarts)
 library(raster)
 library(caret)
 library(GGally) # to make correlation plots for the soil moisture
-library(spatialEco)
+library(spatialEco) # for radiation / heat load index
 library(car)
 
 #### functions #################################################################
@@ -235,7 +235,7 @@ aoi <- plots_sf |>
 
   gpkg <- "data/aoi_masked.gpkg"
   
-  # see what layers the gpkg contains
+# see what layers the gpkg contains
   vector_layers(gpkg)
   aoi_masked <- vect(gpkg) 
   crs(aoi_masked, describe = TRUE)$code
@@ -285,6 +285,7 @@ rast_slope_proc      <- slope_rast |> process_rast()
 rast_aspect_proc     <- aspect_rast |> process_rast()
 rast_aspect_cos_proc <- aspect_cos_rast |> process_rast()
 rast_aspect_sin_proc <- aspect_sin_rast |> process_rast()
+
 rast_tpi_proc        <- tpi |> process_rast()
 rast_hli_proc        <- hli |> process_rast()
 rast_temp_proc       <- temp_rast |> process_rast()
@@ -305,8 +306,7 @@ function(r) crs(r, describe = TRUE)$code)
 
 #### raster solar radiation / heat load index ##################################
 
-# install.packages("spatialEco")
-hli <- spatialEco::hli(rast_dem_proc)   # accepts a terra SpatRaster in recent versions
+hli <- spatialEco::hli(dem_rast)   # accepts a terra SpatRaster in recent versions
 names(hli) <- "hli"
 plot(hli)
 
