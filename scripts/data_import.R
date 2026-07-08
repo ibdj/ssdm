@@ -449,7 +449,7 @@ temp_rast <- predict(pred_stack, temp_lm)
 plot(temp_rast)
 
 rast_temp_proc        <- temp_rast |> process_rast()
-
+plot(trim(rast_temp_proc))
 #### raster moisture (just checking the bad correlation) #######################
 
 my_scatter <- function(data, mapping, ...) {
@@ -523,7 +523,7 @@ abiotic_plot |>
 #This will tell if the logger-based values show cleaner relationships with topography than the point measurements.
 
 
-#### Extract interpolated value ################################################
+#### Extract interpolated temp value ###########################################
 imputed_temp <- terra::extract(temp_rast, na_plot_sf)[, 2]
 imputed_temp
 
