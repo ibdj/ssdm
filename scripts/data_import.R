@@ -232,7 +232,7 @@ aoi <- plots_sf |>
   st_buffer(50) |>
   vect()  # convert to terra format for cropping
 
-
+plot(aoi)
   gpkg <- "data/aoi_masked.gpkg"
   
 # see what layers the gpkg contains
@@ -240,8 +240,8 @@ aoi <- plots_sf |>
   aoi_masked <- vect(gpkg) 
   crs(aoi_masked, describe = TRUE)$code
   
-
-#### aoi export to python/gee ####################
+plot(aoi_masked, add = TRUE)
+#### aoi export to python/gee ##################################################
 
 # aoi_sf <- plots_sf |>
 #   st_bbox() |>
@@ -449,7 +449,14 @@ temp_rast <- predict(pred_stack, temp_lm)
 plot(temp_rast)
 
 rast_temp_proc        <- temp_rast |> process_rast()
+
+mp_abiotic$has_na <- with(mp_abiotic, is.na(elevation) | is.na(slope) | is.na(aspect_raw))
+
 plot(trim(rast_temp_proc))
+plot(st_geometry(plots_sf), add = TRUE, pch = 19,
+     col = ifelse(mp_abiotic$has_na, "red", "black"))
+plot(aoi, add = TRUE)
+plot(rast_dem_proc, add = TRUE)
 #### raster moisture (just checking the bad correlation) #######################
 
 my_scatter <- function(data, mapping, ...) {
@@ -475,7 +482,7 @@ tms_combined |>
 
 #### checking the nas ##########################################################
 
-abiotic_plot |> 
+mp_abiotic |> 
   filter(is.na(elevation) | is.na(slope) | is.na(aspect_raw)) |> 
   dplyr::select(plot_name, x, y, elevation, slope, aspect_raw, twi, ndvi)
 
@@ -548,7 +555,7 @@ mp_abiotic <- mp_abiotic |>
     aspect_raw = terra::extract(rast_aspect_proc,     plots_sf)[, 2],
     aspect_cos = terra::extract(rast_aspect_cos_proc, plots_sf)[, 2],
     aspect_sin = terra::extract(rast_aspect_sin_proc, plots_sf)[, 2],
-#   twi        = terra::extract(rast_twi_proc,        plots_sf)[, 2],
+    twi        = terra::extract(rast_twi_proc,        plots_sf)[, 2],
     temp       = terra::extract(rast_temp_proc,       plots_sf)[, 2],
     tpi        = terra::extract(rast_tpi_proc,        plots_sf)[, 2],
     hli        = terra::extract(rast_hli_proc,       plots_sf)[, 2]
