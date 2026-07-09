@@ -19,6 +19,8 @@ library(GGally) # to make correlation plots for the soil moisture
 library(spatialEco) # for radiation / heat load index
 library(car)
 
+#### to dos ####################################################################
+
 #### functions #################################################################
 
 bb_to_cover <- function(x) {
