@@ -617,3 +617,9 @@ for (v in names(rast_list)) {
 par(mfrow = c(1, 1))
 
 # looking at the actual values of the range match
+sapply(names(rast_list), function(v) {
+  land <- values(rast_list[[v]], na.rm = TRUE)
+  p <- mp_abiotic[[v]]; p <- p[!is.na(p)]
+  c(land_min = min(land), plot_min = min(p),
+    land_max = max(land), plot_max = max(p))
+}) |> t() |> round(2)
