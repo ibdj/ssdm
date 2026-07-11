@@ -615,3 +615,5 @@ for (v in names(rast_list)) {
 }
 
 par(mfrow = c(1, 1))
+
+# looking at the actual values of the range match
