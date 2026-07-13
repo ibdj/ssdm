@@ -22,8 +22,9 @@ library(car)
 #### to dos ####################################################################
 
 # [ ] make a buffer on the aoi i QGIS
-# [ ] do bart with abundance
 # [ ] make plots of the range cover
+# [ ] do bart with abundance
+# [ ] make them stacked
 
 #### functions #################################################################
 
