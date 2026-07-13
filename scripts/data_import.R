@@ -22,7 +22,7 @@ library(car)
 #### to dos ####################################################################
 
 # [x] make a buffer on the aoi
-# [ ] make plots of the range cover
+# [ ] make plots of the range cover for Niels
 # [ ] do bart with abundance
 # [ ] make them stacked
 
@@ -240,6 +240,8 @@ aoi_plots <- plots_sf |>
   st_buffer(50) |>
   vect()  # convert to terra format for cropping
 
+aoi_raw <- buffer(aoi_plots, width = 500)
+
 plot(aoi_plots)
   gpkg <- "data/aoi_masked.gpkg"
   
@@ -256,7 +258,8 @@ crs(aoi_masked, describe = TRUE)$code
 #added 10 m buffer to the aoi
 aoi_masked <- buffer(aoi_masked, width = 10)   # 30 m outward; units = metres (UTM)
 
-plot(aoi_masked) #add = TRUE
+plot(aoi_masked, add = TRUE) #add = TRUE
+plot(aoi_raw)
 #plot(aoi_buffered, border = "blue")
 #plot(aoi_masked, add = TRUE, border = "red")
 #plot(plots_sf, add = TRUE)
@@ -277,15 +280,15 @@ plot(aoi_masked) #add = TRUE
 
 #### raster import #############################################################
 
-rast_dem        <- rast("data/elevation_arcticdem-30_32622.tif")
-rast_ndvi       <- rast("data/ndvi_export_2025.tif")
-rast_ndwi       <- rast("data/ndwi.tif")
+rast_dem        <- rast("data/elevation_arcticdem-30_32622.tif") |> crop(aoi_raw)
+rast_ndvi       <- rast("data/ndvi_export_2025.tif") |> crop(aoi_raw)
+rast_ndwi       <- rast("data/ndwi.tif") 
 rast_snowfree   <- rast("data/snow_free_days.tif")
 
-rast_slope      <- terrain(rast_dem, v = "slope", unit = "degrees")
-rast_aspect     <- terrain(rast_dem, v = "aspect", unit = "degrees")
-rast_aspect_cos <- cos(rast_aspect * pi / 180)
-rast_aspect_sin <- sin(rast_aspect * pi / 180)
+rast_slope      <- terrain(rast_dem, v = "slope", unit = "degrees") |> crop(aoi_raw)
+rast_aspect     <- terrain(rast_dem, v = "aspect", unit = "degrees") |> crop(aoi_raw)
+rast_aspect_cos <- cos(rast_aspect * pi / 180) |> crop(aoi_raw)
+rast_aspect_sin <- sin(rast_aspect * pi / 180) |> crop(aoi_raw)
 
 summary(rast_ndwi)
 
@@ -470,17 +473,19 @@ names(pred_stack) <- c("ndvi", "elevation", "hli")   # match the order above
 
 # Project
 temp_rast <- predict(pred_stack, temp_lm)
-plot(temp_rast)
+plot(trim(temp_rast))
 
 rast_temp_proc        <- temp_rast |> process_rast()
 
 mp_abiotic$has_na <- with(mp_abiotic, is.na(elevation) | is.na(slope) | is.na(aspect_raw))
+mp_abiotic$has_na
 
 plot(trim(rast_temp_proc))
 plot(st_geometry(plots_sf), add = TRUE, pch = 19,
      col = ifelse(mp_abiotic$has_na, "red", "black"))
-plot(aoi, add = TRUE)
 plot(rast_dem_proc, add = TRUE)
+plot(aoi_masked, add = TRUE)
+
 #### raster moisture (just checking the bad correlation) #######################
 
 my_scatter <- function(data, mapping, ...) {
@@ -579,13 +584,13 @@ mp_abiotic <- mp_abiotic |>
     aspect_raw = terra::extract(rast_aspect_proc,     plots_sf)[, 2],
     aspect_cos = terra::extract(rast_aspect_cos_proc, plots_sf)[, 2],
     aspect_sin = terra::extract(rast_aspect_sin_proc, plots_sf)[, 2],
-    twi        = terra::extract(rast_twi_proc,        plots_sf)[, 2],
+    #twi        = terra::extract(rast_twi_proc,        plots_sf)[, 2],
     temp       = terra::extract(rast_temp_proc,       plots_sf)[, 2],
     tpi        = terra::extract(rast_tpi_proc,        plots_sf)[, 2],
     hli        = terra::extract(rast_hli_proc,       plots_sf)[, 2]
   )
 #### writing all data files ####################################################
-saveRDS(abiotic_plot, "data/abiotic_plot.rds")
+saveRDS(mp_abiotic, "data/abiotic_plot.rds")
 saveRDS(species_matrix, "data/species_matrix.rds")
 saveRDS(species_long, "data/species_long.rds")
 write_rds(species_frequency, "data/species_frequency.rds")
