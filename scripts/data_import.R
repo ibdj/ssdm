@@ -43,12 +43,13 @@ bb_to_cover <- function(x) {
   )
 }
 
-# Single processing function for rasters
 process_rast <- function(r, ref = ref_rast) {
+  aoi_src <- project(aoi_masked, crs(r))   # AOI in the raster's own CRS
   r |>
-    project("EPSG:32622") |> #common projection
-    mask(aoi_masked) |>             #cropping
-    resample(ref)            #resampling to the same reference layer
+    crop(aoi_src) |>                        # shrink BEFORE projecting
+    project("EPSG:32622") |>
+    mask(aoi_masked) |>
+    resample(ref)
 }
 
 #### loading tms data ##########################################################
