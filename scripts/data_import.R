@@ -233,21 +233,28 @@ plots_sf <- mp_abiotic |>
   st_as_sf(coords = c("x", "y"), crs = 4326) |>
   st_transform(32622)
 
-aoi <- plots_sf |>
+aoi_plots <- plots_sf |>
   st_bbox() |>
   st_as_sfc() |>
   st_buffer(50) |>
   vect()  # convert to terra format for cropping
 
-plot(aoi)
+plot(aoi_plots)
   gpkg <- "data/aoi_masked.gpkg"
   
 # see what layers the gpkg contains
   vector_layers(gpkg)
   aoi_masked <- vect(gpkg) 
-  crs(aoi_masked, describe = TRUE)$code
+
+crs(aoi_masked, describe = TRUE)$code
   
-plot(aoi_masked, add = TRUE)
+plot(aoi_masked) #add = TRUE
+
+aoi_masked <- buffer(aoi_masked, width = 10)   # 30 m outward; units = metres (UTM)
+
+#plot(aoi_buffered, border = "blue")
+#plot(aoi_masked, add = TRUE, border = "red")
+#plot(plots_sf, add = TRUE)
 #### aoi export to python/gee ##################################################
 
 # aoi_sf <- plots_sf |>
