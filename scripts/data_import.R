@@ -281,8 +281,8 @@ rast_ndvi       <- rast("data/ndvi_export_2025.tif")
 rast_ndwi       <- rast("data/ndwi.tif")
 rast_snowfree   <- rast("data/snow_free_days.tif")
 
-rast_slope      <- terrain(dem_rast, v = "slope", unit = "degrees")
-rast_aspect     <- terrain(dem_rast, v = "aspect", unit = "degrees")
+rast_slope      <- terrain(rast_dem, v = "slope", unit = "degrees")
+rast_aspect     <- terrain(rast_dem, v = "aspect", unit = "degrees")
 rast_aspect_cos <- cos(rast_aspect * pi / 180)
 rast_aspect_sin <- sin(rast_aspect * pi / 180)
 
@@ -296,12 +296,27 @@ hli <- spatialEco::hli(rast_dem)   # accepts a terra SpatRaster in recent versio
 names(hli) <- "hli"
 plot(hli)
 
+#### topographic position index / tpi ##########################################
+
+#Positive = ridge/convexity, negative = valley/concavity (cold-air collection). 
+#The radius is the key decision: 100 m captures fine hollows, a few hundred metres captures broader valley position.
+
+# circular neighbourhood; d is in MAP UNITS (metres if you projected to UTM)
+w <- focalMat(rast_dem, d = 100, type = "circle")   # weights sum to 1
+nbhd_mean <- focal(rast_dem, w = w, fun = "sum", na.rm = TRUE)
+tpi <- rast_dem - nbhd_mean
+
+names(tpi) <- "tpi"
+
+plot(tpi)
+
 #### raster standardising 1 ####################################################
 
 # Define reference raster - everything gets matched to this
 ref_rast <- rast("data/ndvi_export_2025.tif") |>
-  project("EPSG:32622") |>
-  mask(aoi_masked)
+  mask(aoi_masked) |> 
+  project("EPSG:32622")
+  
 
 plot(trim(ref_rast))
 plot(aoi_masked, add = TRUE)
@@ -332,19 +347,6 @@ sapply(list(rast_dem_proc,
             rast_temp_proc
             ),
 function(r) crs(r, describe = TRUE)$code)
-
-#### topographic position index / tpi ##########################################
-
-#Positive = ridge/convexity, negative = valley/concavity (cold-air collection). 
-#The radius is the key decision: 100 m captures fine hollows, a few hundred metres captures broader valley position.
-
-# circular neighbourhood; d is in MAP UNITS (metres if you projected to UTM)
-w <- focalMat(rast_dem_proc, d = 100, type = "circle")   # weights sum to 1
-nbhd_mean <- focal(rast_dem_proc, w = w, fun = "sum", na.rm = TRUE)
-tpi <- rast_dem_proc - nbhd_mean
-names(tpi) <- "tpi"
-
-plot(tpi)
 
 #### raster twi (calculating) ##################################################
 
