@@ -21,7 +21,7 @@ library(car)
 
 #### to dos ####################################################################
 
-# [ ] make a buffer on the aoi i QGIS
+# [x] make a buffer on the aoi
 # [ ] make plots of the range cover
 # [ ] do bart with abundance
 # [ ] make them stacked
@@ -246,13 +246,16 @@ plot(aoi_plots)
   vector_layers(gpkg)
   aoi_masked <- vect(gpkg) 
 
+#removing corner part
+  parts <- disagg(aoi_masked)
+  aoi_masked <- parts[which.max(expanse(parts)), ]
+
 crs(aoi_masked, describe = TRUE)$code
-  
-plot(aoi_masked) #add = TRUE
 
 #added 10 m buffer to the aoi
 aoi_masked <- buffer(aoi_masked, width = 10)   # 30 m outward; units = metres (UTM)
 
+plot(aoi_masked) #add = TRUE
 #plot(aoi_buffered, border = "blue")
 #plot(aoi_masked, add = TRUE, border = "red")
 #plot(plots_sf, add = TRUE)
@@ -273,23 +276,23 @@ aoi_masked <- buffer(aoi_masked, width = 10)   # 30 m outward; units = metres (U
 
 #### raster import #############################################################
 
-dem_rast        <- rast("data/elevation_arcticdem-30_32622.tif")
-ndvi_rast       <- rast("data/ndvi_export_2025.tif")
-ndwi_rast       <- rast("data/ndwi.tif")
-snowfree_rast   <- rast("data/snow_free_days.tif")
+rast_dem        <- rast("data/elevation_arcticdem-30_32622.tif")
+rast_ndvi       <- rast("data/ndvi_export_2025.tif")
+rast_ndwi       <- rast("data/ndwi.tif")
+rast_snowfree   <- rast("data/snow_free_days.tif")
 
-slope_rast      <- terrain(dem_rast, v = "slope", unit = "degrees")
-aspect_rast     <- terrain(dem_rast, v = "aspect", unit = "degrees")
-aspect_cos_rast <- cos(aspect_rast * pi / 180)
-aspect_sin_rast <- sin(aspect_rast * pi / 180)
+rast_slope      <- terrain(dem_rast, v = "slope", unit = "degrees")
+rast_aspect     <- terrain(dem_rast, v = "aspect", unit = "degrees")
+rast_aspect_cos <- cos(rast_aspect * pi / 180)
+rast_aspect_sin <- sin(rast_aspect * pi / 180)
 
-summary(ndwi_rast)
+summary(rast_ndwi)
 
 #### raster solar radiation / heat load index ##################################
 
 # hli needs to be calculated on the uncropped dem because there will be na cells in hli otherwise
 
-hli <- spatialEco::hli(dem_rast)   # accepts a terra SpatRaster in recent versions
+hli <- spatialEco::hli(rast_dem)   # accepts a terra SpatRaster in recent versions
 names(hli) <- "hli"
 plot(hli)
 
@@ -303,14 +306,14 @@ ref_rast <- rast("data/ndvi_export_2025.tif") |>
 plot(trim(ref_rast))
 plot(aoi_masked, add = TRUE)
 
-rast_dem_proc        <- dem_rast |> process_rast()
-rast_ndvi_proc       <- ndvi_rast |> process_rast()
-rast_ndwi_proc       <- ndwi_rast |> process_rast()
-rast_snowfree_proc   <- snowfree_rast |> process_rast()
-rast_slope_proc      <- slope_rast |> process_rast()
-rast_aspect_proc     <- aspect_rast |> process_rast()
-rast_aspect_cos_proc <- aspect_cos_rast |> process_rast()
-rast_aspect_sin_proc <- aspect_sin_rast |> process_rast()
+rast_dem_proc        <- rast_dem |> process_rast()
+rast_ndvi_proc       <- rast_ndvi |> process_rast()
+rast_ndwi_proc       <- rast_ndwi |> process_rast()
+rast_snowfree_proc   <- rast_snowfree |> process_rast()
+rast_slope_proc      <- rast_slope |> process_rast()
+rast_aspect_proc     <- rast_aspect |> process_rast()
+rast_aspect_cos_proc <- rast_aspect_cos |> process_rast()
+rast_aspect_sin_proc <- rast_aspect_sin |> process_rast()
 
 rast_tpi_proc        <- tpi |> process_rast()
 rast_hli_proc        <- hli |> process_rast()
