@@ -250,6 +250,7 @@ crs(aoi_masked, describe = TRUE)$code
   
 plot(aoi_masked) #add = TRUE
 
+#added 10 m buffer to the aoi
 aoi_masked <- buffer(aoi_masked, width = 10)   # 30 m outward; units = metres (UTM)
 
 #plot(aoi_buffered, border = "blue")
