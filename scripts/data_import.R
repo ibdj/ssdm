@@ -300,6 +300,9 @@ ref_rast <- rast("data/ndvi_export_2025.tif") |>
   project("EPSG:32622") |>
   mask(aoi_masked)
 
+plot(trim(ref_rast))
+plot(aoi_masked, add = TRUE)
+
 rast_dem_proc        <- dem_rast |> process_rast()
 rast_ndvi_proc       <- ndvi_rast |> process_rast()
 rast_ndwi_proc       <- ndwi_rast |> process_rast()
