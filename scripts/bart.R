@@ -37,7 +37,7 @@ rast_aspect_cos_proc <- rast("data/rast_aspect_cos_proc.tif")
 rast_aspect_sin_proc <- rast("data/rast_aspect_sin_proc.tif")
 rast_twi_proc        <- rast("data/rast_twi_proc.tif")
 rast_hli_proc        <- rast("data/rast_hli_proc.tif")
-rast_hli_proc        <- rast("data/rast_temp_proc.tif")
+rast_temp_proc        <- rast("data/rast_temp_proc.tif")
 
 #### prepare plot data #########################################################
 
@@ -74,11 +74,11 @@ x_train <- pa_matrix |>
   as.data.frame()
 
 # Stack and name to match predictor names
-pred_rast_stack <- c(rast_dem_proc, rast_slope_proc, rast_hli_proc, rast_ndwi_proc, rast_temp_proc, rast_snowfree_proc)
+pred_rast_stack <- c(rast_dem_proc, rast_slope_proc, rast_ndwi_proc, rast_hli_proc, rast_snowfree_proc, rast_temp_proc)
 
 names(pred_rast_stack) <- pred_names
 
-  # Convert to old raster format for embarcadero/dbarts
+# Convert to old raster format for embarcadero/dbarts
 pred_rast_stack_r <- raster::stack(pred_rast_stack)
 
 # Dataframe for prediction — keep NAs, track complete cases
@@ -138,7 +138,7 @@ species_rasts <- lapply(modelable_species, function(sp) {
 names(species_rasts) <- modelable_species
 
 # Verify they loaded correctly
-plot(species_rasts[["Betula nana"]])
+plot(trim(species_rasts[["Betula nana"]]))
 
 ##### 5 fold validation ########################################################
 
@@ -267,6 +267,46 @@ ggplot(varimp_long, aes(x = variable, y = species, fill = importance)) +
 
 # VERSION TWO ##################################################################
 
+# Calculate full model R2 per species
+r2_results <- map_dfr(modelable_species, function(sp) {
+  predicted <- colMeans(
+    dbarts:::predict.bart(bart_models[[sp]], 
+                          newdata = as.data.frame(x_train))
+  )
+  observed <- pa_matrix[[sp]]
+  
+  ss_res <- sum((observed - predicted)^2)
+  ss_tot <- sum((observed - mean(observed))^2)
+  r2 <- 1 - (ss_res / ss_tot)
+  
+  tibble(species = sp, r2 = round(r2, 3))
+}) |>
+  arrange(desc(r2))
+
+# R2 drop when each variable is excluded
+varimp_r2 <- map_dfr(modelable_species, function(sp) {
+  observed <- pa_matrix[[sp]]
+  
+  # Full model R2
+  full_pred <- colMeans(dbarts:::predict.bart(bart_models[[sp]], 
+                                              newdata = as.data.frame(x_train)))
+  ss_tot <- sum((observed - mean(observed))^2)
+  r2_full <- 1 - sum((observed - full_pred)^2) / ss_tot
+  
+  # R2 drop per variable
+  map_dfr(pred_names, function(var) {
+    x_reduced <- x_train
+    x_reduced[[var]] <- mean(x_train[[var]], na.rm = TRUE)
+    
+    red_pred <- colMeans(dbarts:::predict.bart(bart_models[[sp]], 
+                                               newdata = as.data.frame(x_reduced)))
+    r2_reduced <- 1 - sum((observed - red_pred)^2) / ss_tot
+    
+    tibble(species = sp, variable = var, 
+           r2_drop = max(0, r2_full - r2_reduced))
+  })
+})
+
 # Normalise r2_drop to sum to r2_full per species
 varimp_r2_norm <- varimp_r2 |>
   left_join(r2_results, by = "species") |>
@@ -294,14 +334,13 @@ ggplot(plot_data, aes(x = r2_drop_norm, y = species, fill = variable)) +
   scale_x_continuous(labels = scales::percent) +
   scale_fill_manual(
     values = c(
-      "Unexplained"    = "#D9D9D9",
-      "elevation"      = "#1f77b4",
+      "elevation"      = "#2ca02c",
       "slope"          = "#ff7f0e",
-      "aspect_sin"     = "#2ca02c",
-      "aspect_cos"     = "#d62728",
-      "ndwi"           = "#9467bd",
-      "temp_predicted" = "#8c564b",
-      "snowfree"       = "#e377c2"
+      "ndwi"           = "#1f77b4",
+      "hli"            = "#9467bd",
+      "snowfree"       = "#e377c2",
+      "temp"           = "#d62728",
+      "Unexplained"    = "#D9D9D9"
     )
   ) +
   labs(x = "Proportion of variance", y = NULL,
