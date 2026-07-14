@@ -23,8 +23,7 @@ library(sf)
 
 set.seed(42)
 
-pred_names <- c("elevation", "slope", "aspect_sin", "aspect_cos", 
-                "ndwi", "hli", "snowfree")
+pred_names <- c("elevation", "slope", "ndwi", "hli", "snowfree","temp")
 
 #### read all rasters ##########################################################
 
@@ -38,6 +37,7 @@ rast_aspect_cos_proc <- rast("data/rast_aspect_cos_proc.tif")
 rast_aspect_sin_proc <- rast("data/rast_aspect_sin_proc.tif")
 rast_twi_proc        <- rast("data/rast_twi_proc.tif")
 rast_hli_proc        <- rast("data/rast_hli_proc.tif")
+rast_hli_proc        <- rast("data/rast_temp_proc.tif")
 
 #### prepare plot data #########################################################
 
@@ -55,12 +55,8 @@ pa_matrix <- species_matrix |>
   dplyr::select(plot_name, all_of(modelable_species)) |>
   mutate(across(-plot_name, ~ as.integer(. > 0))) |>
   left_join(
-    abiotic_plot |>
-      dplyr::select(plot_name, elevation, slope, hli,
-                    ndwi, soil_tem_ave, snowfree) |>
-      mutate(temp_predicted = ifelse(is.na(soil_tem_ave),
-                                     imputed_temp,
-                                     soil_tem_ave)) |>
+    mp_abiotic |>
+      dplyr::select(plot_name, elevation, slope, hli, ndwi, temp, snowfree),
       dplyr::select(-soil_tem_ave),
     by = "plot_name"
   )
@@ -78,9 +74,7 @@ x_train <- pa_matrix |>
   as.data.frame()
 
 # Stack and name to match predictor names
-pred_rast_stack <- c(elev_resamp, slope_resamp, aspect_sin_resamp,
-                     aspect_cos_resamp, ndwi_resamp, temp_resamp,
-                     snowfree_resamp)
+pred_rast_stack <- c(rast_dem_proc, rast_slope_proc, rast_hli_proc, rast_ndwi_proc, rast_temp_proc, rast_snowfree_proc)
 
 names(pred_rast_stack) <- pred_names
 
