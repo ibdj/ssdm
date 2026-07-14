@@ -48,13 +48,6 @@ modelable_species <- species_frequency |>
   filter(n_plots >= 10) |>
   pull(species)
 
-temp_rast_masked <- rast("data/temp_predicted_masked.tif")
-
-# Impute missing soil temperature from interpolated raster
-imputed_temp <- terra::extract(temp_rast_masked, 
-                               plots_sf)[, 2]
-
-
 species_matrix <- read_rds("data/species_matrix.rds")
 
 # Build predictor + PA matrix
