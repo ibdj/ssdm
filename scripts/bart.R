@@ -13,11 +13,10 @@ library(tidyverse)
 library(terra)
 library(sf)
 
-
 #### TO DO #####################################################################
 
 # [ ] Both PA and abundance
-# [ ] include hli instead of any of the aspect measures
+# [x] include hli instead of any of the aspect measures
 # [x] include mdwi instead of twi
 
 #### setup #####################################################################
@@ -238,7 +237,7 @@ auc_results <- map_dfr(modelable_species, function(sp) {
   )
 }) |>
   arrange(desc(auc))
-#### explanary ###############################################################
+#### explanatory ###############################################################
 
 #### variable importance #######################################################
 
@@ -266,7 +265,7 @@ ggplot(varimp_long, aes(x = variable, y = species, fill = importance)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         axis.text.y = element_text(face = "italic"))
 
-# VERSION TWO ##################################################################
+#### VERSION TWO ##################################################################
 
 # Calculate full model R2 per species
 r2_results <- map_dfr(modelable_species, function(sp) {
