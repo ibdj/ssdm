@@ -349,7 +349,7 @@ ggplot(plot_data, aes(x = r2_drop_norm, y = species, fill = variable)) +
   theme_minimal() +
   theme(axis.text.y = element_text(face = "italic"))
 
-##### variables ###########
+##### variables ################################################################
 
 # Pivot x_train to long format for faceted plotting
 x_train_long <- x_train |>
