@@ -84,3 +84,10 @@ foreach(sp = modelable_species,
         }
 
 stopCluster(cl)
+
+species_rasts_cover <- lapply(modelable_species, function(sp) {
+  rast(paste0("data/sdm_cover_", gsub(" ", "_", sp), ".tif"))
+})
+names(species_rasts_cover) <- modelable_species
+
+plot(trim(species_rasts_cover[["Betula nana"]]))
