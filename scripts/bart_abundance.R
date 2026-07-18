@@ -36,3 +36,10 @@ cover_matrix <- species_matrix |>
 #   train_data <- cbind(x_train, y = pa_matrix[[sp]]) |> as.data.frame()
 # with:
 train_data <- cbind(x_train, y = cover_matrix[[sp]]) |> as.data.frame()
+
+model <- dbarts::bart2(
+  y ~ .,
+  data = train_data,
+  keepTrees = TRUE,
+  seed = which(modelable_species == sp)
+)
