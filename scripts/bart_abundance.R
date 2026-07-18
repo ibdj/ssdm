@@ -18,6 +18,7 @@ library(caret)
 library(GGally) # to make correlation plots for the soil moisture
 library(spatialEco) # for radiation / heat load index
 library(car)
+library(doParallel)
 
 #### cover matrix ##############################################################
 # Build cover matrix (replaces pa_matrix)
@@ -43,3 +44,43 @@ model <- dbarts::bart2(
   keepTrees = TRUE,
   seed = which(modelable_species == sp)
 )
+
+pred_check <- colMeans(dbarts:::predict.bart(model, newdata = as.data.frame(x_train)))
+summary(pred_check)
+
+cl <- makeCluster(4)
+registerDoParallel(cl)
+clusterSetRNGStream(cl, 42)
+clusterExport(cl, c("cover_matrix", "x_train", "pred_df_r",
+                    "complete_idx", "pred_rast_stack_r", "modelable_species"))
+
+foreach(sp = modelable_species,
+        .packages = c("dbarts", "raster"),
+        .errorhandling = "pass") %dopar% {
+          
+          train_data <- cbind(x_train, y = cover_matrix[[sp]]) |> as.data.frame()
+          
+          model <- dbarts::bart2(
+            y ~ .,
+            data = train_data,
+            keepTrees = TRUE,
+            seed = which(modelable_species == sp)
+          )
+          
+          pred_vals <- dbarts:::predict.bart(model, 
+                                             newdata = pred_df_r[complete_idx, ])
+          cover_vals <- colMeans(pred_vals)
+          
+          cover_full <- rep(NA_real_, nrow(pred_df_r))
+          cover_full[complete_idx] <- cover_vals
+          
+          sp_rast_r <- raster::raster(pred_rast_stack_r[[1]])
+          raster::values(sp_rast_r) <- cover_full
+          
+          filename <- paste0("data/sdm_cover_", gsub(" ", "_", sp), ".tif")
+          raster::writeRaster(sp_rast_r, filename, overwrite = TRUE)
+          
+          filename
+        }
+
+stopCluster(cl)
