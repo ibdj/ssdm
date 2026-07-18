@@ -28,3 +28,11 @@ cover_matrix <- species_matrix |>
       dplyr::select(plot_name, elevation, slope, hli, ndwi, temp, snowfree),
     by = "plot_name"
   )
+
+# Predictor matrix unchanged from pa data — reuse existing x_train
+
+# Response: cover instead of binary presence
+# (in the foreach loop, replace:)
+#   train_data <- cbind(x_train, y = pa_matrix[[sp]]) |> as.data.frame()
+# with:
+train_data <- cbind(x_train, y = cover_matrix[[sp]]) |> as.data.frame()
