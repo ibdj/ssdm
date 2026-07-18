@@ -76,6 +76,7 @@ foreach(sp = modelable_species,
           
           sp_rast_r <- raster::raster(pred_rast_stack_r[[1]])
           raster::values(sp_rast_r) <- cover_full
+          sp_rast_r[sp_rast_r < 0] <- 0 #making sure that bart doesnt extrapolate below 0
           
           filename <- paste0("data/sdm_cover_", gsub(" ", "_", sp), ".tif")
           raster::writeRaster(sp_rast_r, filename, overwrite = TRUE)
@@ -91,3 +92,5 @@ species_rasts_cover <- lapply(modelable_species, function(sp) {
 names(species_rasts_cover) <- modelable_species
 
 plot(trim(species_rasts_cover[["Betula nana"]]))
+
+
