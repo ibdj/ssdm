@@ -30,6 +30,8 @@ cover_matrix <- species_matrix |>
     by = "plot_name"
   )
 
+
+#### fitting and running cover BART ############################################
 # Predictor matrix unchanged from pa data — reuse existing x_train
 
 # Response: cover instead of binary presence
@@ -93,4 +95,67 @@ names(species_rasts_cover) <- modelable_species
 
 plot(trim(species_rasts_cover[["Betula nana"]]))
 
+#### 5-fold cross validation with RMSE #########################################
 
+cl <- makeCluster(4)
+registerDoParallel(cl)
+clusterSetRNGStream(cl, 42)
+clusterExport(cl, c("cover_matrix", "x_train", "modelable_species"))
+
+cv_results_cover <- foreach(sp = modelable_species,
+                            .packages = c("dbarts"),
+                            .combine = rbind,
+                            .errorhandling = "pass") %dopar% {
+                              
+                              y <- cover_matrix[[sp]]
+                              
+                              set.seed(which(modelable_species == sp))
+                              folds <- sample(rep(1:5, length.out = length(y)))
+                              
+                              fold_metrics <- sapply(1:5, function(k) {
+                                train_idx <- which(folds != k)
+                                test_idx  <- which(folds == k)
+                                
+                                train_data <- cbind(x_train[train_idx, ], y = y[train_idx]) |> 
+                                  as.data.frame()
+                                
+                                cv_model <- dbarts::bart2(
+                                  y ~ .,
+                                  data = train_data,
+                                  keepTrees = TRUE,
+                                  seed = which(modelable_species == sp) * k
+                                )
+                                
+                                pred <- colMeans(
+                                  dbarts:::predict.bart(cv_model, 
+                                                        newdata = as.data.frame(x_train[test_idx, ]))
+                                )
+                                
+                                obs <- y[test_idx]
+                                rmse <- sqrt(mean((obs - pred)^2))
+                                ss_res <- sum((obs - pred)^2)
+                                ss_tot <- sum((obs - mean(obs))^2)
+                                r2 <- 1 - ss_res / ss_tot
+                                
+                                c(rmse = rmse, r2 = r2)
+                              })
+                              
+                              data.frame(species = sp, 
+                                         cv_rmse = mean(fold_metrics["rmse", ]), 
+                                         cv_r2 = mean(fold_metrics["r2", ]))
+                            }
+
+stopCluster(cl)
+
+cv_results_cover <- cv_results_cover |> arrange(desc(cv_r2))
+cv_results_cover |> tibble::as_tibble() |> print(n = Inf)
+
+#### 0 - inflation #############################################################
+
+zero_inflation <- cover_matrix |>
+  dplyr::select(all_of(modelable_species)) |>
+  summarise(across(everything(), ~ mean(.x == 0))) |>
+  pivot_longer(everything(), names_to = "species", values_to = "prop_zero") |>
+  arrange(desc(prop_zero))
+
+zero_inflation |> print(n = Inf)
