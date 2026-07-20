@@ -140,6 +140,8 @@ names(species_rasts) <- modelable_species
 # Verify they loaded correctly
 plot(trim(species_rasts[["Betula nana"]]))
 
+# In PA script, after fitting bart_models list:
+saveRDS(bart_models, "data/bart_models_pa.rds")
 ##### 5 fold validation ########################################################
 
 cl <- makeCluster(4)
