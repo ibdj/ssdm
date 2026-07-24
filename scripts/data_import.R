@@ -321,7 +321,6 @@ ref_rast <- rast("data/ndvi_export_2025.tif") |>
   mask(aoi_masked) |> 
   project("EPSG:32622")
   
-
 plot(trim(ref_rast))
 plot(aoi_masked, add = TRUE)
 
@@ -352,6 +351,7 @@ sapply(list(rast_dem_proc,
             ),
 function(r) crs(r, describe = TRUE)$code)
 
+plot(trim(rast_snowfree_proc))
 #### raster twi (calculating) ##################################################
 
 #commented out because I will use ndwi instead
