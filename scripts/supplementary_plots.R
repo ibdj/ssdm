@@ -1,5 +1,19 @@
 library(clhs)
 
+
+# terrain-scale slope for exclusion (not the 50 cm predictor slope)
+dem_2m   <- aggregate(rast_dem_proc, fact = 4, fun = "mean", na.rm = TRUE)  # 0.5 m -> 2 m
+slope_2m <- terrain(dem_2m, v = "slope", unit = "degrees", neighbors = 8)
+rast_slope_place <- resample(slope_2m, rast_dem_proc, method = "bilinear")
+names(rast_slope_place) <- "slope_deg"
+
+# how much of the AOI does the 45 deg cut remove?
+v <- values(rast_slope_place, na.rm = TRUE)
+quantile(v, c(0.5, 0.9, 0.95, 0.99))
+mean(v > 45) * 100   # % of eligible cells excluded
+
+plot(trim(rast_slope_place))
+
 # --- Step 1: build the candidate pool ---
 
 # stack the three placement layers (already masked to aoi_masked, EPSG:32622)
