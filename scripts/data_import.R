@@ -52,9 +52,37 @@ process_rast <- function(r, ref = ref_rast) {
     resample(ref)
 }
 
-#### loading tms data ##########################################################
+#### importing tms data ##########################################################
 
 # it is only summer temp! 
+path <- "~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/"
+
+tms_index <- read_delim("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/tms_index.csv", delim = ";", escape_double = FALSE, trim_ws = TRUE)
+
+names(tms_index)
+
+files <- list.files(path,
+                    pattern = "^data_.*\\.csv$",
+                    recursive = TRUE,
+                    full.names = TRUE)
+
+
+df <- read_delim(files, delim = ";", id = "source_file", col_names = FALSE)
+
+df <- df |>
+  mutate(file = basename(source_file)) |>
+  separate_wider_regex(file, c("data_", tms_serial = "[^_]+", "_", export_date = ".*", "\\.csv")) |> 
+  mutate(tms_serial = as.numeric(tms_serial))
+
+names(df)
+
+df <- df |> 
+  full_join(tms_index, by = "tms_serial") |> 
+  filter(!is.na(plot))
+
+check <- df |> 
+  group_by(tms_serial) |> 
+  summarise(collected = max(date))
 
 raw_tms_mp <- readRDS("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/tms_pivot.rds")
 
