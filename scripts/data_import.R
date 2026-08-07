@@ -56,7 +56,7 @@ process_rast <- function(r, ref = ref_rast) {
 #### importing tms data ##########################################################
 
 # it is only summer temp! 
-path <- "~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/"
+path <- "~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/tms_data"
 
 tms_index <- read_delim("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/tms_index.csv", delim = ";", escape_double = FALSE, trim_ws = TRUE)
 
@@ -117,15 +117,50 @@ mean <- mean(as.double(df_pivot$temp))
 #### tms universal calibration of soilmoisture #####
 
 serials <- as.character(tms_index$tms_serial)
+
 files <- files[str_extract(basename(files), "(?<=^data_)[^_]+") %in% serials]
 
 tms <- mc_read_files(files, dataformat_name = "TOMST")
-tms <- mc_calc_vwc(tms)
+
+mc_info(tms) |> 
+  dplyr::summarise(latest = max(end_date), .by = serial_number)
+
+tms <- mc_join(tms)                    # merges the _1/_2 series per serial
+tms <- mc_prep_clean(tms)              # checks step regularity, flags gaps
+tms <- mc_calc_vwc(tms, soiltype = "universal", output_sensor = "VWC_universal")
+tms <- mc_calc_vwc(tms, soiltype = "peat",      output_sensor = "VWC_peat")
+
 df_vwc <- mc_reshape_wide(tms)
 
-df_vwc <- df_vwc |>
-  mutate(tms_serial = as.character(serial_number)) |>
-  inner_join(tms_index, by = "tms_serial")
+names(df_vwc)
+names(tms)
+
+df_vwc <- mc_reshape_long(tms) |>
+  mutate(tms_serial = as.double(locality_id)) |>
+  dplyr::select(tms_serial, datetime, sensor_name, value) |>
+  pivot_wider(names_from = sensor_name, values_from = value) |>
+  left_join(tms_index, by = "tms_serial") |>
+  filter(datetime > tms_placed) |>
+  mutate(date = as_date(datetime),
+         doy = yday(datetime),
+         year = year(datetime),
+         week = isoweek(datetime))
+
+summary(df_vwc)
+
+
+mc_reshape_long(tms) |>
+  dplyr::summarise(n = dplyr::n(), .by = c(locality_id, datetime, sensor_name)) |>
+  dplyr::filter(n > 1L)
+
+# compare the two different calibrations of the raw soilmoistures
+
+df_vwc |> 
+  summarise(mean_diff = mean(VWC_peat - VWC_universal, na.rm = TRUE),
+            max_diff  = max(abs(VWC_peat - VWC_universal), na.rm = TRUE),
+            .by = tms_serial)
+
+
 
 ##### ####
 
