@@ -18,6 +18,7 @@ library(caret)
 library(GGally) # to make correlation plots for the soil moisture
 library(spatialEco) # for radiation / heat load index
 library(car)
+library(myClim)
 
 #### to dos ####################################################################
 
@@ -77,8 +78,7 @@ df <- df |>
 names(df)
 
 df <- df |> 
-  full_join(tms_index, by = "tms_serial") |> 
-  filter(!is.na(plot))
+  inner_join(tms_index, by = "tms_serial")
 
 df <- df |> mutate(
   datetime = ymd_hm(X2, tz = "UTC"),
@@ -107,7 +107,28 @@ check <- df |>
          tms_placed = min(tms_placed))
 
 df_pivot <- df |> 
-  pivot_longer()
+  pivot_longer(cols = c(temp1_bel06cm,temp2_abv02cm, temp3_abv15cm), names_to = "placement", values_to = "temp") |> 
+  filter(!is.na(temp))
+
+summary(df_pivot)
+
+mean <- mean(as.double(df_pivot$temp))
+
+#### tms universal calibration of soilmoisture #####
+
+serials <- as.character(tms_index$tms_serial)
+files <- files[str_extract(basename(files), "(?<=^data_)[^_]+") %in% serials]
+
+tms <- mc_read_files(files, dataformat_name = "TOMST")
+tms <- mc_calc_vwc(tms)
+df_vwc <- mc_reshape_wide(tms)
+
+df_vwc <- df_vwc |>
+  mutate(tms_serial = as.character(serial_number)) |>
+  inner_join(tms_index, by = "tms_serial")
+
+##### ####
+
 
 raw_tms_mp <- readRDS("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/tms_pivot.rds")
 
