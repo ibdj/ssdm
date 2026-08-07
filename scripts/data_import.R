@@ -80,9 +80,34 @@ df <- df |>
   full_join(tms_index, by = "tms_serial") |> 
   filter(!is.na(plot))
 
+df <- df |> mutate(
+  datetime = ymd_hm(X2, tz = "UTC"),
+  date = as_date(datetime),
+  time = format(datetime, "%H:%M"),
+  doy = yday(datetime),
+  year = year(datetime),
+  week = isoweek(datetime),
+  temp1_bel06cm = as.numeric(X4),
+  temp2_abv02cm = as.numeric(X5),
+  temp3_abv15cm = as.numeric(X6),
+  raw_soil_moisture = as.numeric(X7)
+) |> 
+  filter(date > tms_placed) |> 
+  
+
+summary(df)
+
+names(df)
+
 check <- df |> 
-  group_by(tms_serial) |> 
-  summarise(collected = max(date))
+  group_by(tms_serial, plot, tms_placed) |> 
+  summarise(collected = max(datetime), .groups = "drop") |> 
+  mutate(date = as_date(collected),
+         time = format(collected, "%H:%M"),
+         tms_placed = min(tms_placed))
+
+df_pivot <- df |> 
+  pivot_longer()
 
 raw_tms_mp <- readRDS("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/tms_pivot.rds")
 
