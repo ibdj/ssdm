@@ -195,8 +195,22 @@ abline(0, 1, col = "red", lwd = 2)
 
 ################################################################################
 
-##### ####
+##### interpolation the soil moisture ##########################################
 
+vwc_agg <- tms_long_filt |>
+  dplyr::filter(sensor_name == "VWC_universal") |>
+  dplyr::filter(lubridate::month(datetime) %in% 6:8) |>
+  dplyr::filter(!is.na(value)) |>
+  dplyr::summarise(
+    vwc = mean(value, na.rm = TRUE),
+    n_obs = dplyr::n(),
+    .by = c(serial, plot)
+  )
+
+summary(vwc_agg)
+vwc_agg 
+
+################################################################################
 
 raw_tms_mp <- readRDS("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/r_data/future_changes_data/data/tms_pivot.rds")
 
@@ -385,7 +399,8 @@ aoi_plots <- plots_sf |>
 aoi_raw <- buffer(aoi_plots, width = 500)
 
 plot(aoi_plots)
-  gpkg <- "data/aoi_masked.gpkg"
+  
+gpkg <- "data/aoi_masked.gpkg"
   
 # see what layers the gpkg contains
   vector_layers(gpkg)
@@ -400,7 +415,7 @@ crs(aoi_masked, describe = TRUE)$code
 #added 10 m buffer to the aoi
 aoi_masked <- buffer(aoi_masked, width = 10)   # 30 m outward; units = metres (UTM)
 
-plot(aoi_masked, add = TRUE) #add = TRUE
+plot(aoi_masked) #add = TRUE
 plot(aoi_raw)
 #plot(aoi_buffered, border = "blue")
 #plot(aoi_masked, add = TRUE, border = "red")
@@ -422,15 +437,15 @@ plot(aoi_raw)
 
 #### raster import #############################################################
 
-rast_dem        <- rast("data/elevation_arcticdem-30_32622.tif") |> crop(aoi_raw)
-rast_ndvi       <- rast("data/ndvi_export_2025.tif") |> crop(aoi_raw)
+rast_dem        <- rast("data/elevation_arcticdem-30_32622.tif") |> crop(aoi_masked)
+rast_ndvi       <- rast("data/ndvi_export_2025.tif") |> crop(aoi_masked)
 rast_ndwi       <- rast("data/ndwi.tif") 
 rast_snowfree   <- rast("data/snow_free_days.tif")
 
-rast_slope      <- terrain(rast_dem, v = "slope", unit = "degrees") |> crop(aoi_raw)
-rast_aspect     <- terrain(rast_dem, v = "aspect", unit = "degrees") |> crop(aoi_raw)
-rast_aspect_cos <- cos(rast_aspect * pi / 180) |> crop(aoi_raw)
-rast_aspect_sin <- sin(rast_aspect * pi / 180) |> crop(aoi_raw)
+#rast_slope      <- terrain(rast_dem, v = "slope", unit = "degrees") |> crop(aoi_raw)
+#rast_aspect     <- terrain(rast_dem, v = "aspect", unit = "degrees") |> crop(aoi_raw)
+#rast_aspect_cos <- cos(rast_aspect * pi / 180) |> crop(aoi_raw)
+#rast_aspect_sin <- sin(rast_aspect * pi / 180) |> crop(aoi_raw)
 
 summary(rast_ndwi)
 
@@ -448,13 +463,13 @@ plot(hli)
 #The radius is the key decision: 100 m captures fine hollows, a few hundred metres captures broader valley position.
 
 # circular neighbourhood; d is in MAP UNITS (metres if you projected to UTM)
-w <- focalMat(rast_dem, d = 100, type = "circle")   # weights sum to 1
-nbhd_mean <- focal(rast_dem, w = w, fun = "sum", na.rm = TRUE)
-tpi <- rast_dem - nbhd_mean
+#w <- focalMat(rast_dem, d = 100, type = "circle")   # weights sum to 1
+#nbhd_mean <- focal(rast_dem, w = w, fun = "sum", na.rm = TRUE)
+#tpi <- rast_dem - nbhd_mean
 
-names(tpi) <- "tpi"
+#names(tpi) <- "tpi"
 
-plot(tpi)
+#plot(tpi)
 
 #### raster standardising 1 ####################################################
 
