@@ -180,35 +180,20 @@ tms_long_filt <- tms_long_filt |>
 names(df_vwc)
 names(tms)
 
+#### comparing the calibrations ################################################
 
+vwc_cmp <- tms_long_filt |>
+  dplyr::filter(sensor_name %in% c("VWC_peat", "VWC_universal")) |>
+  tidyr::pivot_wider(names_from = sensor_name, values_from = value) |>
+  dplyr::filter(!is.na(VWC_peat), !is.na(VWC_universal))
 
+plot(vwc_cmp$VWC_universal, vwc_cmp$VWC_peat,
+     pch = ".", col = adjustcolor("steelblue", 0.3),
+     xlab = "VWC universal", ylab = "VWC peat",
+     main = "Calibration comparison (raw timesteps)")
+abline(0, 1, col = "red", lwd = 2)
 
-
-df_vwc <- mc_reshape_long(tms) |>
-  mutate(tms_serial = as.double(locality_id)) |>
-  dplyr::select(tms_serial, datetime, sensor_name, value) |>
-  pivot_wider(names_from = sensor_name, values_from = value) |>
-  left_join(tms_index, by = "tms_serial") |>
-  filter(datetime > tms_placed) |>
-  mutate(date = as_date(datetime),
-         doy = yday(datetime),
-         year = year(datetime),
-         week = isoweek(datetime))
-
-summary(df_vwc)
-
-mc_reshape_long(tms) |>
-  dplyr::summarise(n = dplyr::n(), .by = c(locality_id, datetime, sensor_name)) |>
-  dplyr::filter(n > 1L)
-
-# compare the two different calibrations of the raw soilmoistures
-
-df_vwc |> 
-  summarise(mean_diff = mean(VWC_peat - VWC_universal, na.rm = TRUE),
-            max_diff  = max(abs(VWC_peat - VWC_universal), na.rm = TRUE),
-            .by = tms_serial)
-
-
+################################################################################
 
 ##### ####
 
