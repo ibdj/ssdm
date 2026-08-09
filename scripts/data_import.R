@@ -58,9 +58,20 @@ process_rast <- function(r, ref = ref_rast) {
 # it is only summer temp! 
 path <- "~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/tms_data"
 
-tms_index <- read_delim("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/tms_index.csv", delim = ";", escape_double = FALSE, trim_ws = TRUE)
+tms_index <- read_delim("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/tms_index.csv", delim = ";", escape_double = FALSE, trim_ws = TRUE) |> 
+            rename(serial = tms_serial)
+tms_index_biobasis <- read_csv("~/Library/CloudStorage/OneDrive-GrønlandsNaturinstitut/General - BioBasis/04_GEM_Rådata/TMS4_Logger_Data/tms_metadata2025.csv") |> 
+  rename(plot = plot_name, serial = serialnumber, tms_placed = date_installed) |> 
+  dplyr::select(-masl)
 
 names(tms_index)
+names(tms_index_biobasis)
+
+summary(tms_index_biobasis)
+
+tms_all <- bind_rows(tms_index, tms_index_biobasis) |> 
+  dplyr::select(plot,serial, tms_placed, lon, lat, wkt_geom)
+  
 
 files <- list.files(path,
                     pattern = "^data_.*\\.csv$",
@@ -114,26 +125,64 @@ summary(df_pivot)
 
 mean <- mean(as.double(df_pivot$temp))
 
+#### making a new scratch folder to fix myclim import ##########################
+
 #### tms universal calibration of soilmoisture #####
 
-serials <- as.character(tms_index$tms_serial)
+#serials <- as.character(tms_index$tms_serial)
 
-files <- files[str_extract(basename(files), "(?<=^data_)[^_]+") %in% serials]
+#files <- files[str_extract(basename(files), "(?<=^data_)[^_]+") %in% serials]
 
-tms <- mc_read_files(files, dataformat_name = "TOMST")
+clean_dir <- file.path(tempdir(), "tms_clean")
+
+dir.create(clean_dir, showWarnings = FALSE)
+
+files_clean <- map_chr(files, \(f) {
+  out <- file.path(clean_dir, basename(f))
+  readLines(f) |> str_replace("^(\\d+;[^;]+);-?\\d+;", "\\1;4;") |> writeLines(out)
+  out
+})
+
+tms <- mc_read_files(files_clean, dataformat_name = "TOMST")
 
 mc_info(tms) |> 
   dplyr::summarise(latest = max(end_date), .by = serial_number)
-
+  
 tms <- mc_join(tms)                    # merges the _1/_2 series per serial
 tms <- mc_prep_clean(tms)              # checks step regularity, flags gaps
 tms <- mc_calc_vwc(tms, soiltype = "universal", output_sensor = "VWC_universal")
 tms <- mc_calc_vwc(tms, soiltype = "peat",      output_sensor = "VWC_peat")
+mc_info(tms)
 
-df_vwc <- mc_reshape_wide(tms)
+# per-logger deployment lookup, keyed to match myclim's serial_number
+deploy <- tms_all |>
+  mutate(serial = as.character(serial)) |>
+  dplyr::select(serial, tms_placed, plot)
+
+deploy |> dplyr::count(serial) |> dplyr::filter(n > 1)
+
+tms_long <- mc_reshape_long(tms)
+
+tms_long_filt <- tms_long |>
+  mutate(serial = as.character(serial_number)) |>
+  left_join(deploy, by = "serial") |>
+  filter(
+    format(datetime, "%M") == "00",      # hourly :00 filter
+    as.Date(datetime) >= tms_placed      # keep only post-deployment
+  )
+
+tms_long_filt <- tms_long_filt |>
+  dplyr::summarise(
+    value = mean(value, na.rm = TRUE),
+    .by = c(locality_id, serial_number, serial, sensor_name, height, datetime, tms_placed, plot)
+  )
 
 names(df_vwc)
 names(tms)
+
+
+
+
 
 df_vwc <- mc_reshape_long(tms) |>
   mutate(tms_serial = as.double(locality_id)) |>
@@ -147,7 +196,6 @@ df_vwc <- mc_reshape_long(tms) |>
          week = isoweek(datetime))
 
 summary(df_vwc)
-
 
 mc_reshape_long(tms) |>
   dplyr::summarise(n = dplyr::n(), .by = c(locality_id, datetime, sensor_name)) |>
