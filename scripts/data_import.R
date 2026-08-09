@@ -581,6 +581,25 @@ full_vwc$results   # RMSE + R²
 # baseline: just predicting the mean
 sd(vwc_model$vwc)  # if full-model RMSE ≈ this, the model adds nothing
 
+# regression tree to see non lniear relations ship
+
+library(caret)
+# install.packages("ranger")  # if not already installed
+
+ctrl <- trainControl(method = "LOOCV", allowParallel = FALSE)
+
+set.seed(42)
+rf_vwc <- train(
+  vwc ~ elevation + ndvi + ndwi + snowfree + slope + hli,
+  data = vwc_model,
+  method = "ranger",
+  trControl = ctrl,
+  tuneLength = 3,            # tries a few mtry/splitrule settings
+  num.trees = 500
+)
+
+rf_vwc$results
+rf_vwc$bestTune              # which settings won
 
 #### sampling all imported rasters #############################################
 
@@ -602,14 +621,47 @@ summary(tms_combined)
 
 #### raster temp (interpolation) ###############################################
 
+# --- Temperature interpolation: predictor selection ---
+# Goal: pick a small, physically sensible set of spatial predictors to
+# interpolate mean growing-season soil temperature across the AOI.
+
+# --- Aggregate soil temperature per logger (growing season mean) ---
+temp_agg <- tms_long_filt |>
+  dplyr::filter(sensor_name == "TMS_T1") |>              # soil temp, 8 cm depth
+  dplyr::filter(lubridate::month(datetime) %in% 6:8) |>  # June–August
+  dplyr::summarise(
+    temp  = mean(value, na.rm = TRUE),
+    n_obs = dplyr::n(),
+    .by = c(serial, plot)
+  )
+
+summary(temp_agg)
+
+# --- Join temperature response to the spatial-predictor object ---
+tms_sf <- tms_sf |>
+  dplyr::mutate(serial = as.character(serial)) |>
+  dplyr::left_join(
+    temp_agg |> dplyr::select(serial, temp),
+    by = "serial"
+  )
+
+sum(is.na(tms_sf$temp))   # should be 0
+
+# check it landed and is complete
+sum(is.na(tms_sf$temp))   # should be 0
+names(tms_sf)
+
 #checking for multicolenearity
-cand <- c("elevation", "hli", "tpi", "ndvi", "ndwi", "snowfree")
+cand <- c("elevation", "hli", "ndvi", "ndwi", "snowfree")
 
-round(cor(tms_combined[, cand]), 2)
+# Correlation matrix among candidates: flags redundant predictors
+# (e.g. ndvi/ndwi). Informs interpretation, not inclusion by itself.
+round(cor(sf::st_drop_geometry(tms_sf)[, cand]), 2)
 
-# VIF on the full candidate model
-full <- lm(temp_mean_tms ~ elevation + hli + tpi + ndvi + ndwi + snowfree,
-           data = tms_combined)
+# VIF on the full candidate model: quantifies multicollinearity.
+# Rule of thumb: >5 worth a look, >10 severe. Low VIF = safe to include.
+full <- lm(temp ~ elevation + hli + ndvi + ndwi + snowfree + slope,
+           data = tms_sf)
 vif(full)
 
 # 3. Build UP from the physical core, add only if CV-RMSE meaningfully drops
