@@ -71,7 +71,25 @@ summary(tms_index_biobasis)
 
 tms_all <- bind_rows(tms_index, tms_index_biobasis) |> 
   dplyr::select(plot,serial, tms_placed, lon, lat, wkt_geom)
-  
+
+# BioBasis loggers: lon/lat in WGS84 -> transform to UTM
+have_lonlat <- tms_all |>
+  dplyr::filter(!is.na(lon)) |>
+  st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
+  st_transform(32622)
+
+# your loggers: WKT already in UTM 32622
+have_wkt <- have_wkt |> dplyr::rename(geometry = wkt_geom)
+st_geometry(have_wkt) <- "geometry"
+
+tms_sf <- rbind(
+  have_lonlat |> dplyr::select(serial, plot),
+  have_wkt    |> dplyr::select(serial, plot))
+
+nrow(tms_sf)   # should be 69  
+
+plot(rast_dem_proc, add = TRUE)
+plot(st_geometry(tms_sf), add = TRUE, pch = 19, col = "red")
 
 files <- list.files(path,
                     pattern = "^data_.*\\.csv$",
@@ -442,7 +460,8 @@ rast_ndvi       <- rast("data/ndvi_export_2025.tif") |> crop(aoi_masked)
 rast_ndwi       <- rast("data/ndwi.tif") 
 rast_snowfree   <- rast("data/snow_free_days.tif")
 
-#rast_slope      <- terrain(rast_dem, v = "slope", unit = "degrees") |> crop(aoi_raw)
+rast_slope      <- terrain(rast_dem, v = "slope", unit = "degrees") |> crop(aoi_masked)
+
 #rast_aspect     <- terrain(rast_dem, v = "aspect", unit = "degrees") |> crop(aoi_raw)
 #rast_aspect_cos <- cos(rast_aspect * pi / 180) |> crop(aoi_raw)
 #rast_aspect_sin <- sin(rast_aspect * pi / 180) |> crop(aoi_raw)
@@ -486,11 +505,11 @@ rast_ndvi_proc       <- rast_ndvi |> process_rast()
 rast_ndwi_proc       <- rast_ndwi |> process_rast()
 rast_snowfree_proc   <- rast_snowfree |> process_rast()
 rast_slope_proc      <- rast_slope |> process_rast()
-rast_aspect_proc     <- rast_aspect |> process_rast()
-rast_aspect_cos_proc <- rast_aspect_cos |> process_rast()
-rast_aspect_sin_proc <- rast_aspect_sin |> process_rast()
+#rast_aspect_proc     <- rast_aspect |> process_rast()
+#rast_aspect_cos_proc <- rast_aspect_cos |> process_rast()
+#rast_aspect_sin_proc <- rast_aspect_sin |> process_rast()
 
-rast_tpi_proc        <- tpi |> process_rast()
+#rast_tpi_proc        <- tpi |> process_rast()
 rast_hli_proc        <- hli |> process_rast()
 rast_temp_proc       <- temp_rast |> process_rast()
 
@@ -524,6 +543,27 @@ plot(trim(rast_snowfree_proc))
 # 
 # twi_rast <- rast("data/twi_calculated.tif")
 
+#### sampling based on the new all tms file ####################################
+
+tms_sf <- tms_sf |>
+  mutate(
+    elevation = terra::extract(rast_dem_proc,      tms_sf)[, 2],
+    ndvi      = terra::extract(rast_ndvi_proc,     tms_sf)[, 2],
+    ndwi      = terra::extract(rast_ndwi_proc,     tms_sf)[, 2],
+    snowfree  = terra::extract(rast_snowfree_proc, tms_sf)[, 2],
+    slope     = terra::extract(rast_slope_proc,    tms_sf)[, 2],
+#    tpi       = terra::extract(rast_tpi_proc,      tms_sf)[, 2],
+    hli       = terra::extract(rast_hli_proc,      tms_sf)[, 2]
+  )
+
+vwc_model <- tms_sf |>
+  mutate(serial = as.character(serial)) |>
+  dplyr::left_join(vwc_agg |> mutate(serial = as.character(serial)),
+                   by = "serial") |>
+  sf::st_drop_geometry()
+
+colSums(is.na(vwc_model[, c("vwc","elevation","ndvi","ndwi","snowfree","slope","hli")]))
+
 #### sampling all imported rasters #############################################
 
 tms_combined <- tms_combined |>
@@ -533,10 +573,10 @@ tms_combined <- tms_combined |>
     ndwi       = terra::extract(rast_ndwi_proc,       tms_combined_sf)[, 2],
     snowfree   = terra::extract(rast_snowfree_proc,   tms_combined_sf)[, 2],
     slope      = terra::extract(rast_slope_proc,      tms_combined_sf)[, 2],
-    aspect_raw = terra::extract(rast_aspect_proc,     tms_combined_sf)[, 2],
-    aspect_cos = terra::extract(rast_aspect_cos_proc, tms_combined_sf)[, 2],
-    aspect_sin = terra::extract(rast_aspect_sin_proc, tms_combined_sf)[, 2],
-    tpi        = terra::extract(rast_tpi_proc,        tms_combined_sf)[, 2],
+#    aspect_raw = terra::extract(rast_aspect_proc,     tms_combined_sf)[, 2],
+#    aspect_cos = terra::extract(rast_aspect_cos_proc, tms_combined_sf)[, 2],
+#    aspect_sin = terra::extract(rast_aspect_sin_proc, tms_combined_sf)[, 2],
+#    tpi        = terra::extract(rast_tpi_proc,        tms_combined_sf)[, 2],
     hli        = terra::extract(rast_hli_proc,        tms_combined_sf)[, 2]
   )
 
