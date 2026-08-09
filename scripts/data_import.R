@@ -19,6 +19,7 @@ library(GGally) # to make correlation plots for the soil moisture
 library(spatialEco) # for radiation / heat load index
 library(car)
 library(myClim)
+library(ranger) # to do regression trees on the soil moisture from tms
 
 #### to dos ####################################################################
 
@@ -563,6 +564,23 @@ vwc_model <- tms_sf |>
   sf::st_drop_geometry()
 
 colSums(is.na(vwc_model[, c("vwc","elevation","ndvi","ndwi","snowfree","slope","hli")]))
+
+#### explaingning the vwc by variables ####
+
+cand <- c("elevation", "ndvi", "ndwi", "snowfree", "slope", "hli")
+
+# 1. how does each predictor relate to VWC?
+round(cor(vwc_model[, c("vwc", cand)]), 2)
+
+ctrl <- trainControl(method = "LOOCV", allowParallel = FALSE)
+
+full_vwc <- train(vwc ~ elevation + ndvi + ndwi + snowfree + slope + hli,
+                  data = vwc_model, method = "lm", trControl = ctrl)
+full_vwc$results   # RMSE + R²
+
+# baseline: just predicting the mean
+sd(vwc_model$vwc)  # if full-model RMSE ≈ this, the model adds nothing
+
 
 #### sampling all imported rasters #############################################
 
