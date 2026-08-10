@@ -652,7 +652,7 @@ sum(is.na(tms_sf$temp))   # should be 0
 names(tms_sf)
 
 #checking for multicolenearity
-cand <- c("elevation", "hli", "ndvi", "ndwi", "snowfree")
+cand <- c("elevation", "hli", "ndvi", "ndwi", "snowfree", "slope")
 
 # Correlation matrix among candidates: flags redundant predictors
 # (e.g. ndvi/ndwi). Informs interpretation, not inclusion by itself.
@@ -664,22 +664,24 @@ full <- lm(temp ~ elevation + hli + ndvi + ndwi + snowfree + slope,
            data = tms_sf)
 vif(full)
 
-# 3. Build UP from the physical core, add only if CV-RMSE meaningfully drops
+# --- Best-subset selection by cross-validated prediction error ---
+# Fit every non-empty subset of candidates; rank by LOOCV-RMSE.
+# Out-of-sample error (not in-sample R2) is the selection criterion.
 
 ctrl <- trainControl(method = "LOOCV", allowParallel = FALSE)
 
-# candidate pool — hli chosen over the aspect/slope trio it's built from
-preds <- c("elevation", "hli", "tpi", "ndvi", "ndwi", "snowfree")
+preds <- c("elevation", "hli", "ndvi", "ndwi", "snowfree", "slope")
 
-# every non-empty subset
+# all non-empty subsets of the candidate predictors
 combos <- unlist(
-  lapply(1:length(preds), \(k) combn(preds, k, simplify = FALSE)),
+  lapply(seq_along(preds), \(k) combn(preds, k, simplify = FALSE)),
   recursive = FALSE
 )
 
+# LOOCV-RMSE for each candidate model
 results <- sapply(combos, function(vars) {
-  f <- reformulate(vars, response = "temp_mean_tms")
-  train(f, data = tms_combined, method = "lm", trControl = ctrl)$results$RMSE
+  f <- reformulate(vars, response = "temp")
+  train(f, data = tms_sf, method = "lm", trControl = ctrl)$results$RMSE
 })
 
 out <- data.frame(
@@ -687,8 +689,8 @@ out <- data.frame(
   n    = sapply(combos, length),
   RMSE = results
 )
-out[order(out$RMSE), ] |> head()   # 10 best by CV-RMSE
 
+out[order(out$RMSE), ] |> head(10)   # 10 best models by CV-RMSE
 # making a plot to visualise the lowest RMSE
 
 plot(out$n, out$RMSE,
