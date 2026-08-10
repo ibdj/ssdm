@@ -693,6 +693,19 @@ out <- data.frame(
 out[order(out$RMSE), ] |> head(10)   # 10 best models by CV-RMSE
 # making a plot to visualise the lowest RMSE
 
+# --- Fit the selected temperature model ---
+# elevation + hli + ndvi + ndwi: lowest LOOCV-RMSE, all physically motivated,
+# comfortable for n = 69.
+temp_lm <- lm(temp ~ elevation + hli + ndvi + ndwi, data = tms_sf)
+summary(temp_lm)
+
+# Diagnostic plots: check linearity, normality, homoscedasticity, influence.
+par(mfrow = c(2, 2))
+plot(temp_lm)
+par(mfrow = c(1, 1))
+
+
+#### old diagnostics ########
 plot(out$n, out$RMSE,
      pch = 16, col = adjustcolor("grey60", 0.5),
      xlab = "Number of predictors", ylab = "LOOCV RMSE (°C)",
