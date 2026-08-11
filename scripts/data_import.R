@@ -103,6 +103,25 @@ files <- c(
 
 length(files)   # sanity check on total count
 
+clean_dir <- file.path(tempdir(), "tms_clean")
+
+dir.create(clean_dir, showWarnings = FALSE)
+
+files_clean <- imap_chr(files, \(f, i) {
+  serial <- str_extract(basename(f), "\\d{8}")
+  out <- file.path(clean_dir, paste0("data_", serial, "_", i, ".csv"))  # i keeps it unique
+  readLines(f) |>
+    str_replace("^(\\d+;[^;]+);-?\\d+;", "\\1;4;") |>
+    str_replace("([^;])$", "\\1;") |>
+    writeLines(out)
+  out
+})
+
+
+tms <- mc_read_files(files_clean, dataformat_name = "TOMST")
+
+####
+
 df <- read_delim(files, delim = ";", id = "source_file", col_names = FALSE)
 
 df <- df |>
@@ -157,18 +176,6 @@ mean <- mean(as.double(df_pivot$temp))
 
 #files <- files[str_extract(basename(files), "(?<=^data_)[^_]+") %in% serials]
 
-clean_dir <- file.path(tempdir(), "tms_clean")
-
-dir.create(clean_dir, showWarnings = FALSE)
-
-files_clean <- map_chr(files, \(f) {
-  out <- file.path(clean_dir, basename(f))
-  readLines(f) |> str_replace("^(\\d+;[^;]+);-?\\d+;", "\\1;4;") |> writeLines(out)
-  out
-})
-
-tms <- mc_read_files(files_clean, dataformat_name = "TOMST")
-
 mc_info(tms) |> 
   dplyr::summarise(latest = max(end_date), .by = serial_number)
   
@@ -189,11 +196,9 @@ tms_long <- mc_reshape_long(tms)
 
 tms_long_filt <- tms_long |>
   mutate(serial = as.character(serial_number)) |>
+  filter(lubridate::minute(datetime) == 0) |>   # hourly first — cuts ~75% immediately
   left_join(deploy, by = "serial") |>
-  filter(
-    format(datetime, "%M") == "00",      # hourly :00 filter
-    as.Date(datetime) >= tms_placed      # keep only post-deployment
-  )
+  filter(datetime >= tms_placed)  
 
 tms_long_filt <- tms_long_filt |>
   dplyr::summarise(
@@ -203,6 +208,7 @@ tms_long_filt <- tms_long_filt |>
 
 names(df_vwc)
 names(tms)
+summary(tms_long_filt)
 
 #### comparing the calibrations ################################################
 
@@ -746,32 +752,6 @@ terra::writeRaster(
 
 #### raster interpolation of GROWING SEASON LENGTH #############################
 
-# 1. daily mean soil temperature per logger
-daily_t1 <- tms_long_filt |>
-  dplyr::filter(sensor_name == "TMS_T1") |>
-  dplyr::mutate(date = as.Date(datetime),
-                year = year(datetime)) |>
-  dplyr::summarise(daily_mean = mean(value, na.rm = TRUE),
-                   .by = c(serial, plot, year, date))
-
-# 2. keep only reasonably complete years (>= 330 days of data)
-complete_years <- daily_t1 |>
-  dplyr::summarise(n_days = dplyr::n(), .by = c(serial, year)) |>
-  dplyr::filter(n_days >= 330)
-
-# 3. GSL per logger-year, then average across complete years
-gsl_agg <- daily_t1 |>
-  dplyr::inner_join(complete_years, by = c("serial", "year")) |>
-  dplyr::summarise(gsl_year = sum(daily_mean > 0, na.rm = TRUE),
-                   .by = c(serial, plot, year)) |>
-  dplyr::summarise(gsl = mean(gsl_year),
-                   n_years = dplyr::n(),
-                   .by = c(serial, plot))
-
-summary(gsl_agg)
-gsl_agg
-
-## gsl calucationed pr doy
 gsl_doy <- tms_long_filt |>
   dplyr::filter(sensor_name == "TMS_T1") |>
   dplyr::mutate(doy = yday(datetime)) |>
