@@ -705,69 +705,40 @@ par(mfrow = c(2, 2))
 plot(temp_lm)
 par(mfrow = c(1, 1))
 
+#### --- Residual variogram: is there spatial structure left for kriging? --- ####
 
-#### old diagnostics ########
-plot(out$n, out$RMSE,
-     pch = 16, col = adjustcolor("grey60", 0.5),
-     xlab = "Number of predictors", ylab = "LOOCV RMSE (°C)",
-     main = "All models vs. best-at-each-size", xaxt = "n")
-axis(1, at = sort(unique(out$n)))
+# attach residuals to the spatial object
+tms_sf$temp_resid <- residuals(temp_lm)
 
-plateau <- aggregate(RMSE ~ n, data = out, FUN = min)
-lines(plateau$n, plateau$RMSE, type = "b", pch = 19, lwd = 2, col = "steelblue")
-abline(v = 3, lty = 2, col = "darkorange", lwd = 2)
-legend("topright", bty = "n", cex = 0.85,
-       legend = c("individual models", "best at each size"),
-       pch = c(16, 19), col = c("grey60", "steelblue"))
-
-# label each point with its RMSE
-text(plateau$n, plateau$RMSE,
-     labels = sprintf("%.3f", plateau$RMSE),
-     pos = 3, cex = 0.8)
-
-# Best 3-variable model by CV-RMSE
-best3 <- out[out$n == 3, ]
-best3 <- best3[order(best3$RMSE), ][1, ]
-best3
-
-
-# Step 1: fit linear model on combined logger data
-temp_lm <- lm(temp_mean_tms ~ ndvi + hli + elevation, 
-              data = tms_combined)
-
-summary(temp_lm)
-
-# Standard linear model diagnostic plots
-par(mfrow = c(2, 2))
-plot(temp_lm)
-par(mfrow = c(1, 1))
-
-# Add residuals to combined logger data
-tms_combined_sf <- tms_combined_sf |>
-  mutate(temp_resid = residuals(temp_lm))
-
-# Compute variogram of residuals
-vgm_temp <- variogram(temp_resid ~ 1, data = tms_combined_sf)
+# empirical variogram of residuals
+vgm_temp <- variogram(temp_resid ~ 1, data = tms_sf)
 plot(vgm_temp)
 
-# Now stack
-pred_stack <- c(rast_ndvi_proc, rast_dem_proc, rast_hli_proc)
-names(pred_stack) <- c("ndvi", "elevation", "hli")   # match the order above
+# --- Predict temperature surface across the AOI ---
+# Residual variogram showed no spatial structure (pure nugget), so plain
+# regression prediction is appropriate — no kriging needed.
 
-# Project
-temp_rast <- predict(pred_stack, temp_lm)
+# stack predictors; names MUST match the model's variables
+pred_stack <- c(rast_dem_proc, rast_hli_proc, rast_ndvi_proc, rast_ndwi_proc)
+names(pred_stack) <- c("elevation", "hli", "ndvi", "ndwi")
+
+# verify names/ranges before predicting (guards against layer-order mixups)
+pred_stack
+
+temp_rast <- terra::predict(pred_stack, temp_lm)
 plot(trim(temp_rast))
 
-rast_temp_proc        <- temp_rast |> process_rast()
-
-mp_abiotic$has_na <- with(mp_abiotic, is.na(elevation) | is.na(slope) | is.na(aspect_raw))
-mp_abiotic$has_na
-
+# --- Finalise and export the temperature layer ---
+# Align to reference grid + mask to AOI, matching the other predictors.
+rast_temp_proc <- temp_rast |> process_rast()
 plot(trim(rast_temp_proc))
-plot(st_geometry(plots_sf), add = TRUE, pch = 19,
-     col = ifelse(mp_abiotic$has_na, "red", "black"))
-plot(rast_dem_proc, add = TRUE)
-plot(aoi_masked, add = TRUE)
+
+# write to disk as GeoTIFF
+terra::writeRaster(
+  rast_temp_proc,
+  filename = "data/rast_temp_proc.tif",   # adjust path as needed
+  overwrite = TRUE
+)
 
 #### raster moisture (just checking the bad correlation) #######################
 
@@ -840,20 +811,6 @@ abiotic_plot |>
   round(2)
 
 #This will tell if the logger-based values show cleaner relationships with topography than the point measurements.
-
-
-#### Extract interpolated temp value ###########################################
-imputed_temp <- terra::extract(temp_rast, na_plot_sf)[, 2]
-imputed_temp
-
-# Fill NA in abiotic_plot
-abiotic_plot <- abiotic_plot |>
-  mutate(temp_predicted = ifelse(is.na(soil_tem_ave), 
-                                 imputed_temp, 
-                                 soil_tem_ave))
-
-# Verify no more NAs
-sum(is.na(abiotic_plot$temp_predicted))
 
 #### raster sampling ###########################################################
 
