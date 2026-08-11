@@ -20,6 +20,7 @@ library(spatialEco) # for radiation / heat load index
 library(car)
 library(myClim)
 library(ranger) # to do regression trees on the soil moisture from tms
+library(gstat)
 
 #### to dos ####################################################################
 
