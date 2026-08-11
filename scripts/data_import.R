@@ -60,8 +60,11 @@ process_rast <- function(r, ref = ref_rast) {
 # it is only summer temp! 
 path <- "~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/tms_data"
 
+path2 <- "~/Library/CloudStorage/OneDrive-GrønlandsNaturinstitut/General - BioBasis/04_GEM_Rådata/TMS4_Logger_Data"
+
 tms_index <- read_delim("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/tms_index.csv", delim = ";", escape_double = FALSE, trim_ws = TRUE) |> 
             rename(serial = tms_serial)
+
 tms_index_biobasis <- read_csv("~/Library/CloudStorage/OneDrive-GrønlandsNaturinstitut/General - BioBasis/04_GEM_Rådata/TMS4_Logger_Data/tms_metadata2025.csv") |> 
   rename(plot = plot_name, serial = serialnumber, tms_placed = date_installed) |> 
   dplyr::select(-masl)
@@ -93,11 +96,12 @@ nrow(tms_sf)   # should be 69
 plot(rast_dem_proc, add = TRUE)
 plot(st_geometry(tms_sf), add = TRUE, pch = 19, col = "red")
 
-files <- list.files(path,
-                    pattern = "^data_.*\\.csv$",
-                    recursive = TRUE,
-                    full.names = TRUE)
+files <- c(
+  list.files(path,  pattern = "^data_.*\\.csv$", recursive = TRUE, full.names = TRUE),
+  list.files(path2, pattern = "^data_.*\\.csv$", recursive = TRUE, full.names = TRUE)
+)
 
+length(files)   # sanity check on total count
 
 df <- read_delim(files, delim = ";", id = "source_file", col_names = FALSE)
 
@@ -740,6 +744,47 @@ terra::writeRaster(
   overwrite = TRUE
 )
 
+#### raster interpolation of GROWING SEASON LENGTH #############################
+
+# 1. daily mean soil temperature per logger
+daily_t1 <- tms_long_filt |>
+  dplyr::filter(sensor_name == "TMS_T1") |>
+  dplyr::mutate(date = as.Date(datetime),
+                year = year(datetime)) |>
+  dplyr::summarise(daily_mean = mean(value, na.rm = TRUE),
+                   .by = c(serial, plot, year, date))
+
+# 2. keep only reasonably complete years (>= 330 days of data)
+complete_years <- daily_t1 |>
+  dplyr::summarise(n_days = dplyr::n(), .by = c(serial, year)) |>
+  dplyr::filter(n_days >= 330)
+
+# 3. GSL per logger-year, then average across complete years
+gsl_agg <- daily_t1 |>
+  dplyr::inner_join(complete_years, by = c("serial", "year")) |>
+  dplyr::summarise(gsl_year = sum(daily_mean > 0, na.rm = TRUE),
+                   .by = c(serial, plot, year)) |>
+  dplyr::summarise(gsl = mean(gsl_year),
+                   n_years = dplyr::n(),
+                   .by = c(serial, plot))
+
+summary(gsl_agg)
+gsl_agg
+
+## gsl calucationed pr doy
+gsl_doy <- tms_long_filt |>
+  dplyr::filter(sensor_name == "TMS_T1") |>
+  dplyr::mutate(doy = yday(datetime)) |>
+  # mean soil temp per logger per day-of-year (pooled across years)
+  dplyr::summarise(doy_mean = mean(value, na.rm = TRUE),
+                   .by = c(serial, plot, doy)) |>
+  # GSL = number of DOY with pooled mean > 0
+  dplyr::summarise(gsl = sum(doy_mean > 0, na.rm = TRUE),
+                   n_doy = dplyr::n(),      # how many DOY had any data (coverage check)
+                   .by = c(serial, plot))
+
+summary(gsl_doy)
+gsl_doy
 #### raster moisture (just checking the bad correlation) #######################
 
 my_scatter <- function(data, mapping, ...) {
