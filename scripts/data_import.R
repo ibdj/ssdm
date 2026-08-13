@@ -765,6 +765,59 @@ gsl_doy <- tms_long_filt |>
 
 summary(gsl_doy)
 gsl_doy
+
+# --- Join GSL response to the spatial-predictor object ---
+tms_sf <- tms_sf |>
+  dplyr::left_join(gsl_doy |> dplyr::select(serial, gsl), by = "serial")
+
+sum(is.na(tms_sf$gsl))   # should be 0
+
+cand <- c("elevation", "hli", "ndvi", "ndwi", "snowfree", "slope")
+
+round(cor(sf::st_drop_geometry(tms_sf)[, c("gsl", cand)]), 2)
+
+full_gsl <- lm(gsl ~ elevation + hli + ndvi + ndwi + snowfree + slope, data = tms_sf)
+vif(full_gsl)
+
+# finding the model for gsl interpolation
+
+ctrl <- trainControl(method = "LOOCV", allowParallel = FALSE)
+
+preds <- c("elevation", "hli", "ndvi", "ndwi", "snowfree", "slope")
+
+combos <- unlist(
+  lapply(seq_along(preds), \(k) combn(preds, k, simplify = FALSE)),
+  recursive = FALSE
+)
+
+results <- sapply(combos, function(vars) {
+  f <- reformulate(vars, response = "gsl")
+  train(f, data = tms_sf, method = "lm", trControl = ctrl)$results$RMSE
+})
+
+out_gsl <- data.frame(
+  vars = sapply(combos, paste, collapse = " + "),
+  n    = sapply(combos, length),
+  RMSE = results
+)
+
+out_gsl[order(out_gsl$RMSE), ] |> head(10)
+
+sd(tms_sf$gsl)
+
+# R² of the best model
+best_gsl <- train(gsl ~ hli + ndvi, data = tms_sf,
+                  method = "lm", trControl = ctrl)
+best_gsl$results   # look at Rsquared
+
+set.seed(42)
+rf_gsl <- train(
+  gsl ~ elevation + hli + ndvi + ndwi + snowfree + slope,
+  data = tms_sf, method = "ranger",
+  trControl = ctrl, tuneLength = 3, num.trees = 500
+)
+rf_gsl$results
+
 #### raster moisture (just checking the bad correlation) #######################
 
 my_scatter <- function(data, mapping, ...) {
