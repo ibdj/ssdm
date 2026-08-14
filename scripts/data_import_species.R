@@ -23,6 +23,30 @@ bb_to_cover <- function(x) {
   )
 }
 
+generate_dataframe <- function(number) {
+  taxon_col <- sym(paste0("taxon_", number))
+  height_col <- sym(paste0("taxon_", number, "_height"))
+  bb_col <- sym(paste0("taxon_", number, "_bb"))
+  
+  df_raw %>%
+    select(1:31, !!taxon_col, !!height_col, !!bb_col, 74:78) %>%
+    mutate(rowid = row_number(),
+           position = paste0("taxon_", number)) %>%
+    rename(taxon = !!taxon_col,
+           height = !!height_col,
+           bb = !!bb_col)
+}
+
+#### importing survey123 file ##################################################
+
+survey_0 <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/survey_0.csv", col_types = cols(Date = col_datetime(format = "%m/%d/%Y %H.%M"))) |> 
+  dplyr::select(where(~ !all(is.na(.)))) |> 
+  clean_names() |>  
+  mutate(rowid = row_number())
+    
+
+names(survey_0)
+
 #### species matrix ############################################################
 
 # Step 1: pivot just the species names to long
