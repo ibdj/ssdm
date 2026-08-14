@@ -32,21 +32,6 @@ library(gstat)
 
 #### functions #################################################################
 
-bb_to_cover <- function(x) {
-  dplyr::case_when(
-    startsWith(x, "5 (") ~ 87.5,
-    startsWith(x, "4 (") ~ 62.5,
-    startsWith(x, "3 (") ~ 37.5,
-    startsWith(x, "2 (") ~ 15.0,
-    startsWith(x, "1 (") ~ 2.5,
-    startsWith(x, "+ (") ~ 1.0,
-    startsWith(x, "r (") ~ 0.5,
-    startsWith(x, "i (") ~ 0.1,
-    x == "0" ~ 0.0,
-    TRUE ~ NA_real_
-  )
-}
-
 process_rast <- function(r, ref = ref_rast) {
   aoi_src <- project(aoi_masked, crs(r))   # AOI in the raster's own CRS
   r |>
