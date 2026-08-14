@@ -23,29 +23,46 @@ bb_to_cover <- function(x) {
   )
 }
 
-generate_dataframe <- function(number) {
-  taxon_col <- sym(paste0("taxon_", number))
-  height_col <- sym(paste0("taxon_", number, "_height"))
-  bb_col <- sym(paste0("taxon_", number, "_bb"))
+generate_dataframe <- function(number, data = survey_0) {
+  taxon_col  <- paste0("taxon_", number)
+  height_col <- paste0("taxon_", number, "_height")
+  bb_col     <- paste0("taxon_", number, "_bb")
   
-  df_raw %>%
-    select(1:31, !!taxon_col, !!height_col, !!bb_col, 74:78) %>%
-    mutate(rowid = row_number(),
-           position = paste0("taxon_", number)) %>%
-    rename(taxon = !!taxon_col,
-           height = !!height_col,
-           bb = !!bb_col)
+  # everything that is NOT a per-taxon column = the shared plot metadata
+  taxon_pattern <- "^taxon_\\d+(_height|_braun_blanquet)?$"
+  meta_cols <- setdiff(names(data), grep(taxon_pattern, names(data), value = TRUE))
+  
+  data |>
+    dplyr::select(dplyr::all_of(c(meta_cols, taxon_col, height_col, bb_col))) |>
+    dplyr::mutate(position = paste0("taxon_", number)) |>
+    dplyr::rename(taxon  = dplyr::all_of(taxon_col),
+                  height = dplyr::all_of(height_col),
+                  bb     = dplyr::all_of(bb_col))
 }
 
 #### importing survey123 file ##################################################
 
 survey_0 <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/survey_0.csv", col_types = cols(Date = col_datetime(format = "%m/%d/%Y %H.%M"))) |> 
-  dplyr::select(where(~ !all(is.na(.)))) |> 
-  clean_names() |>  
-  mutate(rowid = row_number())
-    
+  dplyr::select(where(~ !all(is.na(.))))
 
+survey_0 <- survey_0 |> 
+  clean_names() |>  
+  mutate(rowid = row_number()) |> 
+  dplyr::rename_with(~ gsub("braun_blanquet", "bb", .x)) 
+
+# find the highest taxon slot present in the data
+n_taxa <- names(survey_0) |>
+  stringr::str_extract("(?<=^taxon_)\\d+") |>   # pull the number after "taxon_"
+  as.integer() |>
+  max(na.rm = TRUE)
+
+
+
+raw_df <- generate_dataframe(survey_0)
+  
 names(survey_0)
+str(survey_0)
+summary(survey_0)
 
 #### species matrix ############################################################
 
