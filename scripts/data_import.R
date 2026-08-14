@@ -26,7 +26,7 @@ library(gstat)
 
 # [x] make a buffer on the aoi
 # [ ] make plots of the range cover for Niels
-# [x] interpolation growing season lenght from soil temps (not doable)
+# [x] interpolation growing season lenght from soil temps (not doable; not reliably mappable from available predictors)
 # [ ] do bart with abundance
 # [ ] make them stacked
 
