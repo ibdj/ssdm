@@ -24,12 +24,6 @@ library(gstat)
 
 #### to dos ####################################################################
 
-# [x] make a buffer on the aoi
-# [ ] make plots of the range cover for Niels
-# [x] interpolation growing season lenght from soil temps (not doable; not reliably mappable from available predictors)
-# [ ] do bart with abundance
-# [ ] make them stacked
-
 #### functions #################################################################
 
 process_rast <- function(r, ref = ref_rast) {
@@ -276,64 +270,6 @@ raw_df_cover <- raw_qgis_samples |>
   mutate(total_cover = rowSums(across(ends_with("_bb")), na.rm = TRUE))
 
 summary(raw_df_cover)
-#### species matrix ############################################################
-
-# Step 1: pivot just the species names to long
-taxon_names <- raw_df_cover |>
-  dplyr::select(plot_name, matches("^taxon_[0-9]+$")) |>
-  pivot_longer(-plot_name, names_to = "slot", values_to = "species_name")
-
-# Step 2: pivot just the bb values to long
-taxon_bb <- raw_df_cover |>
-  dplyr::select(plot_name, matches("^taxon_[0-9]+_bb$")) |>
-  pivot_longer(-plot_name, names_to = "slot", values_to = "cover") |>
-  mutate(slot = str_remove(slot, "_bb$"))
-
-# Step 3: pivot just the height values to long
-taxon_height <- raw_df_cover |>
-  dplyr::select(plot_name, matches("^taxon_[0-9]+_height$")) |>
-  pivot_longer(-plot_name, names_to = "slot", values_to = "height") |>
-  mutate(slot = str_remove(slot, "_height$"))
-
-# Step 4: join all three together
-species_long <- taxon_names |>
-  left_join(taxon_bb, by = c("plot_name", "slot")) |>
-  left_join(taxon_height, by = c("plot_name", "slot")) |>
-  filter(!is.na(species_name) & species_name != "") |> 
-  dplyr::select(-slot)
-
-species_long <- species_long |>
-  mutate(
-    species_name = str_trim(species_name),           # remove whitespace
-    species_name = str_remove(species_name, "_+$"),  # remove trailing underscores
-    species_name = case_when(
-      species_name == "Scirpis caespitosus" ~ "Scirpus caespitosus",
-      TRUE ~ species_name
-    )
-  ) |> 
-  group_by(plot_name, species_name) |>
-  slice_max(cover, n = 1, with_ties = FALSE) |>
-  ungroup()
-
-species_long |> 
-  distinct(species_name) |> 
-  arrange(species_name) |> 
-  print(n = Inf)
-
-species_long |> 
-  dplyr::count(plot_name, species_name) |> 
-  dplyr::filter(n > 1)
-
-species_matrix <- species_long |>
-  dplyr::select(plot_name, species_name, cover) |>
-  pivot_wider(
-    names_from = species_name,
-    values_from = cover,
-    values_fill = 0
-  )
-
-sp_cols <- species_matrix |> dplyr::select(-plot_name)
-
 #### abiotic df (field measurements) ################################################################
 
 mp_abiotic <- raw_df_cover |>
