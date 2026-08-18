@@ -272,14 +272,30 @@ raw_df_cover <- raw_qgis_samples |>
 summary(raw_df_cover)
 #### abiotic df (field measurements) ################################################################
 
-mp_abiotic <- raw_df_cover |>
-  left_join(species_matrix |> dplyr::select(plot_name), by = "plot_name") |>
-  mutate(
-    richness = rowSums(sp_cols > 0),
-    shannon = vegan::diversity(sp_cols, index = "shannon")
-  )
+plot_meta <- survey_0_ren |> 
+  dplyr::select(1:24)
 
-summary(mp_abiotic)
+plot_meta <- plot_meta |>
+  dplyr::mutate(dplyr::across(
+    dplyr::matches("^soil_(moisture|temp)_[news]$"),
+    ~ dplyr::if_else(.x < 0, NA_real_, .x)
+  ))
+
+plot_meta <- plot_meta |>
+  dplyr::mutate(veg_height_mean = rowMeans(
+    dplyr::pick(dplyr::starts_with("vegetation_height_")), na.rm = TRUE
+  ))
+
+# calculating the veg height from the species data
+veg_species_height <- species_long |> 
+  group_by(plot_name) |> 
+  reframe(veg_height_species = mean(height))|>
+  dplyr::right_join(dplyr::distinct(survey_0, plot_name), by = "plot_name") |>
+  dplyr::mutate(dplyr::across(-plot_name, ~ tidyr::replace_na(.x, 0)))
+
+# joining species mean height and the plot veg height
+plot_meta <- plot_meta |> 
+  left_join(veg_species_height, by = "plot_name")
 
 mp_abiotic <- mp_abiotic |> 
   dplyr::select(plot_name, veg_height_ave, bare_ground_bb, x, y, total_cover, richness, shannon, soil_moi_ave, soil_tem_ave) |> 
