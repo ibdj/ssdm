@@ -35,6 +35,22 @@ process_rast <- function(r, ref = ref_rast) {
     resample(ref)
 }
 
+#cover function needed to convert the bryophyte and lichen cover
+bb_to_cover <- function(x) {
+  dplyr::case_when(
+    startsWith(x, "5 (") ~ 87.5,
+    startsWith(x, "4 (") ~ 62.5,
+    startsWith(x, "3 (") ~ 37.5,
+    startsWith(x, "2 (") ~ 15.0,
+    startsWith(x, "1 (") ~ 2.5,
+    startsWith(x, "+ (") ~ 1.0,
+    startsWith(x, "r (") ~ 0.5,
+    startsWith(x, "i (") ~ 0.1,
+    x == "0" ~ 0.0,
+    TRUE ~ NA_real_
+  )
+}
+
 #### importing tms data ##########################################################
 
 # it is only summer temp! 
@@ -272,9 +288,15 @@ raw_df_cover <- raw_qgis_samples |>
 summary(raw_df_cover)
 #### abiotic df (field measurements) ################################################################
 
-plot_meta <- survey_0_ren |> 
-  dplyr::select(1:24) |> 
-  rename(bryophyte_bb = bryophyte_bb_49)
+names(survey_0_ren)
+plot_meta <- survey_0_ren |>
+  dplyr::select(1:24) |>
+  dplyr::rename(bryophyte_bb = bryophyte_bb_49) |>
+  dplyr::mutate(
+    cover_bryophyte = bb_to_cover(bryophyte_bb),
+    cover_lichen    = bb_to_cover(lichen_bb),
+    cove_bareground = bb_to_cover(bare_ground_bb)
+  )
 
 plot_meta <- plot_meta |>
   dplyr::mutate(dplyr::across(
@@ -288,19 +310,16 @@ plot_meta <- plot_meta |>
   ))
 
 # calculating the veg height from the species data
-veg_species_height <- species_long |> 
-  group_by(plot_name) |> 
-  reframe(veg_height_species = round(mean(height))|>
-  dplyr::right_join(dplyr::distinct(survey_0, plot_name)), by = "plot_name") |>
+veg_species_height <- species_long |>
+  dplyr::group_by(plot_name) |>
+  dplyr::summarise(veg_height_species = round(mean(height, na.rm = TRUE))) |>
+  dplyr::right_join(dplyr::distinct(survey_0, plot_name), by = "plot_name") |>
   dplyr::mutate(dplyr::across(-plot_name, ~ tidyr::replace_na(.x, 0)))
 
 # joining species mean height and the plot veg height
 plot_meta <- plot_meta |> 
   left_join(veg_species_height, by = "plot_name")
 
-# Find the plot with NA temp
-na_plot <- mp_abiotic |> 
-  filter(is.na(temp_mean_mea))
 
 # Convert to sf and extract from raster
 na_plot_sf <- na_plot |>
