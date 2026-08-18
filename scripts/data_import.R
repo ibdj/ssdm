@@ -312,21 +312,35 @@ plot_meta <- plot_meta |>
 # calculating the veg height from the species data
 veg_species_height <- species_long |>
   dplyr::group_by(plot_name) |>
-  dplyr::summarise(veg_height_species = round(mean(height, na.rm = TRUE))) |>
+  dplyr::summarise(cover_allplant = round(sum(cover, na.rm = TRUE),2), veg_height_species = round(mean(height, na.rm = TRUE),2), ) |>
   dplyr::right_join(dplyr::distinct(survey_0, plot_name), by = "plot_name") |>
   dplyr::mutate(dplyr::across(-plot_name, ~ tidyr::replace_na(.x, 0)))
 
+cover_functional_groups <- species_long |> 
+  group_by(plot)
+  
+
 # joining species mean height and the plot veg height
 plot_meta <- plot_meta |> 
-  left_join(veg_species_height, by = "plot_name")
-
+  left_join(veg_species_height, by = "plot_name") |> 
+  dplyr::select(plot_name,x,y,rowid,cover_bryophyte,cover_lichen,cove_bareground,veg_height_mean,veg_height_species, cover_allplant)
 
 # Convert to sf and extract from raster
-na_plot_sf <- na_plot |>
+plot_meta <- plot_meta |>
   st_as_sf(coords = c("x", "y"), crs = 4326) |>
   st_transform(32622)
 
-na_plot_sf
+summary(plot_meta)
+
+#basic plotting
+ggplot(plot_meta, aes(x = cover_allplant, y = veg_height_species)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  labs(
+    x = "Vegetation height, plot corners (cm)",
+    y = "Vegetation height, species mean (cm)"
+  ) +
+  theme_minimal()
 
 #### combining all tms ##########################################################
 
