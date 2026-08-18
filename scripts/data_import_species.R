@@ -42,13 +42,18 @@ generate_dataframe <- function(number, data = survey_0) {
 
 #### importing survey123 file ##################################################
 
-survey_0 <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/survey_0.csv", col_types = cols(Date = col_datetime(format = "%m/%d/%Y %H.%M"))) |> 
-  dplyr::select(where(~ !all(is.na(.))))
+eco_veg_growth_forms <- read_excel("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/01 Vegetation changes Kobbefjord/data/nero_analysis/data/eco_veg_growth_forms.xlsx") |> 
+  mutate(taxon = species)
+names(eco_veg_growth_forms)
 
-survey_0 <- survey_0 |> 
+survey_0 <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/survey_0.csv", col_types = cols(Date = col_datetime(format = "%m/%d/%Y %H.%M"))) |> 
+  dplyr::select(where(~ !all(is.na(.)))) |> 
   clean_names() |>  
   mutate(rowid = row_number()) |> 
-  dplyr::rename_with(~ gsub("braun_blanquet", "bb", .x)) 
+  dplyr::rename_with(~ gsub("braun_blanquet", "bb", .x)) |> 
+  mutate(plot_name = toupper(plot_name)) |> 
+  filter(grepl('MP', plot_name))
+  
 
 # find the highest taxon slot present in the data
 n_taxa <- names(survey_0) |>
@@ -56,68 +61,136 @@ n_taxa <- names(survey_0) |>
   as.integer() |>
   max(na.rm = TRUE)
 
-
-
-raw_df <- generate_dataframe(survey_0)
-  
 names(survey_0)
 str(survey_0)
 summary(survey_0)
 
-#### species matrix ############################################################
-
-# Step 1: pivot just the species names to long
-taxon_names <- raw_df_cover |>
-  dplyr::select(plot_name, matches("^taxon_[0-9]+$")) |>
-  pivot_longer(-plot_name, names_to = "slot", values_to = "species_name")
-
-# Step 2: pivot just the bb values to long
-taxon_bb <- raw_df_cover |>
-  dplyr::select(plot_name, matches("^taxon_[0-9]+_bb$")) |>
-  pivot_longer(-plot_name, names_to = "slot", values_to = "cover") |>
-  mutate(slot = str_remove(slot, "_bb$"))
-
-# Step 3: pivot just the height values to long
-taxon_height <- raw_df_cover |>
-  dplyr::select(plot_name, matches("^taxon_[0-9]+_height$")) |>
-  pivot_longer(-plot_name, names_to = "slot", values_to = "height") |>
-  mutate(slot = str_remove(slot, "_height$"))
-
-# Step 4: join all three together
-species_long <- taxon_names |>
-  left_join(taxon_bb, by = c("plot_name", "slot")) |>
-  left_join(taxon_height, by = c("plot_name", "slot")) |>
-  filter(!is.na(species_name) & species_name != "") |> 
-  dplyr::select(-slot)
-
-species_long <- species_long |>
-  mutate(
-    species_name = str_trim(species_name),           # remove whitespace
-    species_name = str_remove(species_name, "_+$"),  # remove trailing underscores
-    species_name = case_when(
-      species_name == "Scirpis caespitosus" ~ "Scirpus caespitosus",
-      TRUE ~ species_name
-    )
-  ) |> 
-  group_by(plot_name, species_name) |>
-  slice_max(cover, n = 1, with_ties = FALSE) |>
-  ungroup()
-
-species_long |> 
-  distinct(species_name) |> 
-  arrange(species_name) |> 
-  print(n = Inf)
-
-species_long |> 
-  dplyr::count(plot_name, species_name) |> 
-  dplyr::filter(n > 1)
-
-species_matrix <- species_long |>
-  dplyr::select(plot_name, species_name, cover) |>
-  pivot_wider(
-    names_from = species_name,
-    values_from = cover,
-    values_fill = 0
+survey_0 <- survey_0 |> 
+  dplyr::select(
+    plot_name,
+    vegetation_height_n,
+    vegetation_height_e,
+    vegetation_height_s,
+    vegetation_height_w,
+    soil_moisture_n,
+    soil_moisture_e,
+    soil_moisture_s,
+    soil_moisture_w,
+    soil_temp_n,
+    soil_temp_e,
+    soil_temp_s,
+    soil_temp_w,
+    topographic_complexity_cm,
+    bryophyte_bb_49,
+    lichen_bb,
+    other_notes,
+    vegetation_type,
+    bare_ground_bb,
+    other_vegetation_type,
+    tms,
+    x,
+    y,
+    rowid,
+    taxon_1,
+    taxon_1_height,
+    taxon_1_bb,
+    taxon_2,
+    taxon_2_height,
+    taxon_2_bb,
+    taxon_3,
+    taxon_3_height,
+    taxon_3_bb,
+    taxon_4,
+    taxon_4_height,
+    taxon_4_bb,
+    taxon_5,
+    taxon_5_height,
+    taxon_5_bb,
+    taxon_6,
+    taxon_6_height,
+    taxon_6_bb,
+    taxon_7,
+    taxon_7_height,
+    taxon_7_bb,
+    taxon_8,
+    taxon_8_height,
+    taxon_8_bb,
+    taxon_9,
+    taxon_9_height,
+    taxon_9_bb,
+    taxon_10,
+    taxon_10_height,
+    taxon_10_bb,
+    taxon_11,
+    taxon_11_height,
+    taxon_11_bb,
+    taxon_12,
+    taxon_12_height,
+    taxon_12_bb,
+    taxon_13,
+    taxon_13_height,
+    taxon_13_bb,
+    taxon_14,
+    taxon_14_height,
+    taxon_14_bb,
+    taxon_15,
+    taxon_15_height,
+    taxon_15_bb,
+    taxon_16,
+    taxon_16_height,
+    taxon_16_bb
   )
 
-sp_cols <- species_matrix |> dplyr::select(-plot_name)
+survey_0_ren <- survey_0 |>
+  dplyr::rename_with(
+    ~ paste0(.x, "_name"),
+    .cols = dplyr::matches("^taxon_\\d+$")   # $ = ONLY bare taxon_N, not _height/_bb
+  )
+
+species_long <- survey_0_ren |>
+  tidyr::pivot_longer(
+    cols = dplyr::matches("^taxon_\\d+"),
+    names_to = c("slot", ".value"),
+    names_pattern = "taxon_(\\d+)_(name|height|bb)"
+  ) |>
+  dplyr::filter(!is.na(name)) |>
+  dplyr::rename(taxon = name) |> 
+  mutate(
+    taxon = str_trim(taxon),
+    taxon = str_remove(taxon, "_+$"),
+    taxon = case_when(
+      taxon == "Scirpis caespitosus" ~ "Scirpus caespitosus",
+      TRUE ~ taxon
+    )
+  )
+
+species_long <- species_long |>
+  dplyr::mutate(cover = bb_to_cover(bb)) |> 
+  group_by(plot_name, taxon) |>
+  slice_max(cover, n = 1, with_ties = FALSE) |>
+  ungroup() |> 
+  left_join(eco_veg_growth_forms, by = "taxon")
+
+taxon_check <- species_long |> 
+  distinct(taxon)
+#### species matrix ############################################################
+
+species_only_long <- species_long |> 
+  dplyr::select(plot_name, taxon, cover) |> 
+  distinct()
+
+species_matrix <- species_long |>
+  dplyr::select(plot_name, taxon, cover) |>
+  tidyr::pivot_wider(names_from = taxon, values_from = cover, values_fill = 0) |>
+  dplyr::right_join(dplyr::distinct(survey_0, plot_name), by = "plot_name") |>
+  dplyr::mutate(dplyr::across(-plot_name, ~ tidyr::replace_na(.x, 0)))
+
+species_matrix_cover <- species_matrix |>
+  tibble::column_to_rownames("plot_name")
+
+species_matrix_pa <- (species_matrix_cover > 0) * 1
+
+saveRDS(species_matrix_out, "data/species_matrix_cover.rds")
+saveRDS(species_matrix_pa, "data/species_matrix_pa.rds")
+
+
