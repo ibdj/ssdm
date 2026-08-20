@@ -1,6 +1,7 @@
 #### packages ##################################################################
 
 library(tidyverse)
+library(myClim)
 
 #### importing tms index (meta)data ##########################################################
 
@@ -19,7 +20,7 @@ tms_index_biobasis <- read_csv("~/Library/CloudStorage/OneDrive-GrønlandsNaturi
 tms_index_all <- bind_rows(tms_index_mp, tms_index_biobasis) |> 
   dplyr::select(plot,serial, tms_placed, lon, lat, wkt_geom)
 
-#### importing actual data #####################################################
+#### importing actual tms data with mclim#######################################
 
 files <- c(
   list.files(path,  pattern = "^data_.*\\.csv$", recursive = TRUE, full.names = TRUE),
@@ -44,12 +45,40 @@ files_clean <- imap_chr(files, \(f, i) {
 
 tms <- mc_read_files(files_clean, dataformat_name = "TOMST")
 
-# BioBasis loggers: lon/lat in WGS84 -> transform to UTM
-have_lonlat <- tms_all |>
-  dplyr::filter(!is.na(lon)) |>
-  st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
-  st_transform(32622)
+mc_info(tms) |> 
+  dplyr::summarise(latest = max(end_date), .by = serial_number)
 
-# your loggers: WKT already in UTM 32622
-have_wkt <- have_wkt |> dplyr::rename(geometry = wkt_geom)
-st_geometry(have_wkt) <- "geometry"
+tms <- mc_join(tms)                    # merges the _1/_2 series per serial
+tms <- mc_prep_clean(tms)              # checks step regularity, flags gaps
+tms <- mc_calc_vwc(tms, soiltype = "universal", output_sensor = "VWC_universal")
+
+mc_info(tms)
+
+# per-logger deployment lookup, keyed to match myclim's serial_number
+deploy <- tms_index_all |>
+  mutate(serial = as.character(serial)) |>
+  dplyr::select(serial, tms_placed, plot, wkt_geom)
+
+deploy |> dplyr::count(serial) |> dplyr::filter(n > 1)
+
+tms_long <- mc_reshape_long(tms)
+
+tms_long_filt <- tms_long |>
+  mutate(serial = as.character(serial_number)) |>
+  filter(lubridate::minute(datetime) == 0) |>   # hourly first — cuts ~75% immediately
+  left_join(deploy, by = "serial") |>
+  filter(datetime >= tms_placed)  
+
+str(tms_long_filt)
+summary(tms_long_filt)
+
+##### fixing geometry ##########################################################
+
+tms_all_sf <- tms_index_all |>
+  st_as_sf(wkt = "wkt_geom", crs = 32622)
+
+# check of the coordinates
+
+st_bbox(tms_all_sf)
+sum(!st_is_valid(tms_all_sf))
+nrow(tms_all_sf)
