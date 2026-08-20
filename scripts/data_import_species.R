@@ -43,7 +43,7 @@ generate_dataframe <- function(number, data = survey_0) {
 #### importing survey123 file ##################################################
 
 eco_veg_growth_forms <- read_excel("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/01 Vegetation changes Kobbefjord/data/nero_analysis/data/eco_veg_growth_forms.xlsx") |> 
-  mutate(taxon = species)
+  mutate(taxon = species, func_type = as.factor(func_type))
 names(eco_veg_growth_forms)
 
 survey_0 <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/survey_0.csv", col_types = cols(Date = col_datetime(format = "%m/%d/%Y %H.%M"))) |> 
@@ -172,6 +172,7 @@ species_long <- species_long |>
   left_join(eco_veg_growth_forms, by = "taxon")
 
 taxon_check <- species_long |> 
+  filter(is.na(ecoveg_sgfc)) |> 
   distinct(taxon)
 #### species matrix ############################################################
 
