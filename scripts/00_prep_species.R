@@ -191,6 +191,7 @@ species_matrix_cover <- species_matrix |>
 
 species_matrix_pa <- (species_matrix_cover > 0) * 1
 
+saveRDS(species_long, "data/species_long.rds")
 saveRDS(species_matrix_out, "data/species_matrix_cover.rds")
 saveRDS(species_matrix_pa, "data/species_matrix_pa.rds")
 
