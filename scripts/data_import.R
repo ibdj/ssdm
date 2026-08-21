@@ -18,22 +18,11 @@ library(caret)
 library(GGally) # to make correlation plots for the soil moisture
 library(spatialEco) # for radiation / heat load index
 library(car)
-library(myClim)
 library(ranger) # to do regression trees on the soil moisture from tms
 library(gstat)
 
-#### to dos ####################################################################
-
 #### functions #################################################################
 
-process_rast <- function(r, ref = ref_rast) {
-  aoi_src <- project(aoi_masked, crs(r))   # AOI in the raster's own CRS
-  r |>
-    crop(aoi_src) |>                        # shrink BEFORE projecting
-    project("EPSG:32622") |>
-    mask(aoi_masked) |>
-    resample(ref)
-}
 
 #cover function needed to convert the bryophyte and lichen cover
 bb_to_cover <- function(x) {
@@ -51,175 +40,6 @@ bb_to_cover <- function(x) {
   )
 }
 
-#### importing tms data ##########################################################
-
-# it is only summer temp! 
-path <- "~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/tms_data"
-
-path2 <- "~/Library/CloudStorage/OneDrive-GrønlandsNaturinstitut/General - BioBasis/04_GEM_Rådata/TMS4_Logger_Data"
-
-tms_index <- read_delim("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/data/tms_index.csv", delim = ";", escape_double = FALSE, trim_ws = TRUE) |> 
-            rename(serial = tms_serial)
-
-tms_index_biobasis <- read_csv("~/Library/CloudStorage/OneDrive-GrønlandsNaturinstitut/General - BioBasis/04_GEM_Rådata/TMS4_Logger_Data/tms_metadata2025.csv") |> 
-  rename(plot = plot_name, serial = serialnumber, tms_placed = date_installed) |> 
-  dplyr::select(-masl)
-
-names(tms_index)
-names(tms_index_biobasis)
-
-summary(tms_index_biobasis)
-
-tms_all <- bind_rows(tms_index, tms_index_biobasis) |> 
-  dplyr::select(plot,serial, tms_placed, lon, lat, wkt_geom)
-
-# BioBasis loggers: lon/lat in WGS84 -> transform to UTM
-have_lonlat <- tms_all |>
-  dplyr::filter(!is.na(lon)) |>
-  st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
-  st_transform(32622)
-
-# your loggers: WKT already in UTM 32622
-have_wkt <- have_wkt |> dplyr::rename(geometry = wkt_geom)
-st_geometry(have_wkt) <- "geometry"
-
-tms_sf <- rbind(
-  have_lonlat |> dplyr::select(serial, plot),
-  have_wkt    |> dplyr::select(serial, plot))
-
-nrow(tms_sf)   # should be 69  
-
-plot(rast_dem_proc, add = TRUE)
-plot(st_geometry(tms_sf), add = TRUE, pch = 19, col = "red")
-
-files <- c(
-  list.files(path,  pattern = "^data_.*\\.csv$", recursive = TRUE, full.names = TRUE),
-  list.files(path2, pattern = "^data_.*\\.csv$", recursive = TRUE, full.names = TRUE)
-)
-
-length(files)   # sanity check on total count
-
-clean_dir <- file.path(tempdir(), "tms_clean")
-
-dir.create(clean_dir, showWarnings = FALSE)
-
-files_clean <- imap_chr(files, \(f, i) {
-  serial <- str_extract(basename(f), "\\d{8}")
-  out <- file.path(clean_dir, paste0("data_", serial, "_", i, ".csv"))  # i keeps it unique
-  readLines(f) |>
-    str_replace("^(\\d+;[^;]+);-?\\d+;", "\\1;4;") |>
-    str_replace("([^;])$", "\\1;") |>
-    writeLines(out)
-  out
-})
-
-
-tms <- mc_read_files(files_clean, dataformat_name = "TOMST")
-
-####
-
-df <- read_delim(files, delim = ";", id = "source_file", col_names = FALSE)
-
-df <- df |>
-  mutate(file = basename(source_file)) |>
-  separate_wider_regex(file, c("data_", tms_serial = "[^_]+", "_", export_date = ".*", "\\.csv")) |> 
-  mutate(tms_serial = as.numeric(tms_serial))
-
-names(df)
-
-df <- df |> 
-  inner_join(tms_index, by = "tms_serial")
-
-df <- df |> mutate(
-  datetime = ymd_hm(X2, tz = "UTC"),
-  date = as_date(datetime),
-  time = format(datetime, "%H:%M"),
-  doy = yday(datetime),
-  year = year(datetime),
-  week = isoweek(datetime),
-  temp1_bel06cm = as.numeric(X4),
-  temp2_abv02cm = as.numeric(X5),
-  temp3_abv15cm = as.numeric(X6),
-  raw_soil_moisture = as.numeric(X7)
-) |> 
-  filter(date > tms_placed) |> 
-  
-
-summary(df)
-
-names(df)
-
-check <- df |> 
-  group_by(tms_serial, plot, tms_placed) |> 
-  summarise(collected = max(datetime), .groups = "drop") |> 
-  mutate(date = as_date(collected),
-         time = format(collected, "%H:%M"),
-         tms_placed = min(tms_placed))
-
-df_pivot <- df |> 
-  pivot_longer(cols = c(temp1_bel06cm,temp2_abv02cm, temp3_abv15cm), names_to = "placement", values_to = "temp") |> 
-  filter(!is.na(temp))
-
-summary(df_pivot)
-
-mean <- mean(as.double(df_pivot$temp))
-
-#### making a new scratch folder to fix myclim import ##########################
-
-#### tms universal calibration of soilmoisture #####
-
-#serials <- as.character(tms_index$tms_serial)
-
-#files <- files[str_extract(basename(files), "(?<=^data_)[^_]+") %in% serials]
-
-mc_info(tms) |> 
-  dplyr::summarise(latest = max(end_date), .by = serial_number)
-  
-tms <- mc_join(tms)                    # merges the _1/_2 series per serial
-tms <- mc_prep_clean(tms)              # checks step regularity, flags gaps
-tms <- mc_calc_vwc(tms, soiltype = "universal", output_sensor = "VWC_universal")
-tms <- mc_calc_vwc(tms, soiltype = "peat",      output_sensor = "VWC_peat")
-mc_info(tms)
-
-# per-logger deployment lookup, keyed to match myclim's serial_number
-deploy <- tms_all |>
-  mutate(serial = as.character(serial)) |>
-  dplyr::select(serial, tms_placed, plot)
-
-deploy |> dplyr::count(serial) |> dplyr::filter(n > 1)
-
-tms_long <- mc_reshape_long(tms)
-
-tms_long_filt <- tms_long |>
-  mutate(serial = as.character(serial_number)) |>
-  filter(lubridate::minute(datetime) == 0) |>   # hourly first — cuts ~75% immediately
-  left_join(deploy, by = "serial") |>
-  filter(datetime >= tms_placed)  
-
-tms_long_filt <- tms_long_filt |>
-  dplyr::summarise(
-    value = mean(value, na.rm = TRUE),
-    .by = c(locality_id, serial_number, serial, sensor_name, height, datetime, tms_placed, plot)
-  )
-
-names(df_vwc)
-names(tms)
-summary(tms_long_filt)
-
-#### comparing the calibrations ################################################
-
-vwc_cmp <- tms_long_filt |>
-  dplyr::filter(sensor_name %in% c("VWC_peat", "VWC_universal")) |>
-  tidyr::pivot_wider(names_from = sensor_name, values_from = value) |>
-  dplyr::filter(!is.na(VWC_peat), !is.na(VWC_universal))
-
-plot(vwc_cmp$VWC_universal, vwc_cmp$VWC_peat,
-     pch = ".", col = adjustcolor("steelblue", 0.3),
-     xlab = "VWC universal", ylab = "VWC peat",
-     main = "Calibration comparison (raw timesteps)")
-abline(0, 1, col = "red", lwd = 2)
-
-################################################################################
 
 ##### interpolation the soil moisture ##########################################
 
@@ -316,14 +136,21 @@ veg_species_height <- species_long |>
   dplyr::right_join(dplyr::distinct(survey_0, plot_name), by = "plot_name") |>
   dplyr::mutate(dplyr::across(-plot_name, ~ tidyr::replace_na(.x, 0)))
 
-cover_functional_groups <- species_long |> 
-  group_by(plot)
+cover_functional_groups <- species_long |>
+  dplyr::group_by(plot_name, func_type) |>
+  dplyr::summarise(cover = sum(cover, na.rm = TRUE), .groups = "drop") |>
+  tidyr::pivot_wider(
+    names_from = func_type,
+    values_from = cover,
+    names_prefix = "cover_",
+    values_fill = 0
+  ) 
   
-
 # joining species mean height and the plot veg height
 plot_meta <- plot_meta |> 
   left_join(veg_species_height, by = "plot_name") |> 
-  dplyr::select(plot_name,x,y,rowid,cover_bryophyte,cover_lichen,cove_bareground,veg_height_mean,veg_height_species, cover_allplant)
+  left_join(cover_functional_groups, by = "plot_name") |> 
+  dplyr::select(plot_name,x,y,rowid,cover_bryophyte,cover_lichen,cove_bareground,veg_height_mean,veg_height_species, cover_allplant, cover_forb, cover_graminoid, cover_shrub)
 
 # Convert to sf and extract from raster
 plot_meta <- plot_meta |>
@@ -342,28 +169,6 @@ ggplot(plot_meta, aes(x = cover_allplant, y = veg_height_species)) +
   ) +
   theme_minimal()
 
-#### combining all tms ##########################################################
-
-# Extract TMS logger plots with coordinates from abiotic_plot
-tms_mp_own <-  mp_abiotic |>
-  filter(!is.na(temp_mean_tms)) |>
-  dplyr::select(plot_name, x, y, temp_mean_tms, mois_raw_tms) |>
-  rename(Longitude = x, Latitude = y)
-
-# Bind and normalise rmi together (RELATIVE MOISTURE INDEX)
-tms_combined <- bind_rows(tms_mp_own, raw_tms_biobasis |> rename(plot_name = Plot)) |>
-  mutate(
-    rmi_tms = (mois_raw_tms - min(mois_raw_tms)) / 
-      (max(mois_raw_tms) - min(mois_raw_tms)) * 100
-  )
-
-summary(tms_combined)
-
-nrow(tms_combined)
-
-tms_combined_sf <- tms_combined |>
-  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) |>
-  st_transform(32622)
 
 #### species frequency #########################################################
 
@@ -377,93 +182,12 @@ species_frequency <- species_matrix |>
 
 print(species_frequency, n = Inf)
 
-#### plots and aoi #############################################################
 
-plots_sf <- mp_abiotic |>
-  st_as_sf(coords = c("x", "y"), crs = 4326) |>
-  st_transform(32622)
-
-aoi_plots <- plots_sf |>
-  st_bbox() |>
-  st_as_sfc() |>
-  st_buffer(50) |>
-  vect()  # convert to terra format for cropping
-
-aoi_raw <- buffer(aoi_plots, width = 500)
-
-plot(aoi_plots)
-  
-gpkg <- "data/aoi_masked.gpkg"
-  
-# see what layers the gpkg contains
-  vector_layers(gpkg)
-  aoi_masked <- vect(gpkg) 
-
-#removing corner part
-  parts <- disagg(aoi_masked)
-  aoi_masked <- parts[which.max(expanse(parts)), ]
-
-crs(aoi_masked, describe = TRUE)$code
-
-#added 10 m buffer to the aoi
-aoi_masked <- buffer(aoi_masked, width = 10)   # 30 m outward; units = metres (UTM)
-
-plot(aoi_masked) #add = TRUE
-plot(aoi_raw)
 #plot(aoi_buffered, border = "blue")
 #plot(aoi_masked, add = TRUE, border = "red")
 #plot(plots_sf, add = TRUE)
 #### aoi export to python/gee ##################################################
 
-# aoi_sf <- plots_sf |>
-#   st_bbox() |>
-#   st_as_sfc() |>
-#   st_buffer(50) |>
-#   st_transform(4326)  # GEE needs WGS84
-# 
-# st_write(aoi_sf, "data/aoi.shp", delete_dsn = TRUE)
-# #This creates 4 files (.shp, .shx, .dbf, .prj) — you need to upload all four to GEE as a zip:
-#   # Zip all shapefile components for GEE upload
-# zip("data/aoi.zip", 
-#     files = c("data/aoi.shp", "data/aoi.shx", 
-#               "data/aoi.dbf", "data/aoi.prj"))
-
-#### raster import #############################################################
-
-rast_dem        <- rast("data/elevation_arcticdem-30_32622.tif") |> crop(aoi_masked)
-rast_ndvi       <- rast("data/ndvi_export_2025.tif") |> crop(aoi_masked)
-rast_ndwi       <- rast("data/ndwi.tif") 
-rast_snowfree   <- rast("data/snow_free_days.tif")
-
-rast_slope      <- terrain(rast_dem, v = "slope", unit = "degrees") |> crop(aoi_masked)
-
-#rast_aspect     <- terrain(rast_dem, v = "aspect", unit = "degrees") |> crop(aoi_raw)
-#rast_aspect_cos <- cos(rast_aspect * pi / 180) |> crop(aoi_raw)
-#rast_aspect_sin <- sin(rast_aspect * pi / 180) |> crop(aoi_raw)
-
-summary(rast_ndwi)
-
-#### raster solar radiation / heat load index ##################################
-
-# hli needs to be calculated on the uncropped dem because there will be na cells in hli otherwise
-
-hli <- spatialEco::hli(rast_dem)   # accepts a terra SpatRaster in recent versions
-names(hli) <- "hli"
-plot(hli)
-
-#### topographic position index / tpi ##########################################
-
-#Positive = ridge/convexity, negative = valley/concavity (cold-air collection). 
-#The radius is the key decision: 100 m captures fine hollows, a few hundred metres captures broader valley position.
-
-# circular neighbourhood; d is in MAP UNITS (metres if you projected to UTM)
-#w <- focalMat(rast_dem, d = 100, type = "circle")   # weights sum to 1
-#nbhd_mean <- focal(rast_dem, w = w, fun = "sum", na.rm = TRUE)
-#tpi <- rast_dem - nbhd_mean
-
-#names(tpi) <- "tpi"
-
-#plot(tpi)
 
 #### raster standardising 1 ####################################################
 
