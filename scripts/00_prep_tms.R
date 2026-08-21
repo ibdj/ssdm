@@ -45,6 +45,9 @@ files_clean <- imap_chr(files, \(f, i) {
   out
 })
 
+saveRDS(files_clean, "data/files_clean.rds")
+readRDS("data/files_clean.rds")
+
 tms <- mc_read_files(files_clean, dataformat_name = "TOMST")
 locs_before <- unique(mc_info(tms)$locality_id)       
 locs_before
@@ -126,16 +129,30 @@ record_len <- mc_info(tms) |>
   dplyr::filter(sensor_name == "TMS_T2") |>
   dplyr::summarise(
     years = as.numeric(difftime(max(end_date), min(start_date), units = "days")) / 365.25,
-    .by = locality_id
+    .by = locality_id, plot
   )
 
-snow_per_year <- snow_summary |>
-  dplyr::summarise(snow_days_total = sum(snow_days), .by = locality_id) |>
-  dplyr::left_join(record_len, by = "locality_id") |>
-  dplyr::mutate(snow_days_yr = snow_days_total / years)
-
 snow_summary <- mc_calc_snow_agg(tms, snow_sensor = "snow")
+
+snow_per_year <- snow_summary |>
+  dplyr::left_join(record_len, by = "locality_id") |>
+  dplyr::mutate(snow_days_yr = snow_days / years) |>
+  dplyr::left_join(
+    tms_index_all |> dplyr::mutate(serial = as.character(serial)) |> dplyr::select(serial, plot),
+    by = c("locality_id" = "serial")
+  ) 
+
 snow_summary
+
+tms_metrics <- tms_metrics |>
+  dplyr::left_join(
+    tms_index_all |> dplyr::mutate(serial = as.character(serial)) |> dplyr::select(locality_id = serial, plot),
+    by = "locality_id"
+  )
+
+common1 <- intersect(names(tms_metrics), names(snow_per_year))
+common1
+tms_metrics <- dplyr::left_join(tms_metrics, snow_per_year, by = common1)
 ##### fixing geometry ##########################################################
 
 tms_all_sf <- tms_index_all |>
