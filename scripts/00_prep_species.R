@@ -191,6 +191,13 @@ species_matrix_cover <- species_matrix |>
 
 species_matrix_pa <- (species_matrix_cover > 0) * 1
 
+#### plots geometry ############################################################
+plots_sf <- survey_0_ren |>
+  dplyr::distinct(plot_name, x, y) |>
+  sf::st_as_sf(coords = c("x", "y"), crs = 32622)
+
+#### saving all outputs#########################################################
+saveRDS(plots_sf, "data/plots_sf.rds")
 saveRDS(species_long, "data/species_long.rds")
 saveRDS(species_matrix_out, "data/species_matrix_cover.rds")
 saveRDS(species_matrix_pa, "data/species_matrix_pa.rds")
