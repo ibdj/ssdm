@@ -49,9 +49,10 @@ saveRDS(files_clean, "data/files_clean.rds")
 readRDS("data/files_clean.rds")
 
 tms <- mc_read_files(files_clean, dataformat_name = "TOMST")
-locs_before <- unique(mc_info(tms)$locality_id)       
-locs_before
-unique(tms_index_all$serial)
+saveRDS(tms, "data/tms.rds")
+readRDS("data/tms.rds")
+
+#unique(tms_index_all$serial)
 
 tms <- mc_filter(tms, localities = tms_index_all$serial)
 setdiff(locs_before, unique(mc_info(tms)$locality_id))   # who got dropped
