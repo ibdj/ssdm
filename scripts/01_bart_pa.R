@@ -24,6 +24,9 @@ library(sf)
 set.seed(42)
 
 pred_stack <- rast("data/pred_stack.tif")
+names(pred_stack)
+
+pred_names <- names(pred_stack)
 
 #### prepare plot data #########################################################
 
@@ -32,20 +35,19 @@ species_frequency <- read_rds("data/species_frequency.rds")
 # Get modelable species
 modelable_species <- species_frequency |>
   filter(n_plots >= 10) |>
-  pull(species)
+  pull(taxon)
 
 species_matrix_pa <- read_rds("data/species_matrix_pa.rds")
+names(species_matrix_pa)
+rs <- readRDS("data/rs.rds")
+names(rs)
 
 # Build predictor + PA matrix
-pa_matrix <- species_matrix |>
-  dplyr::select(plot_name, all_of(modelable_species)) |>
-  mutate(across(-plot_name, ~ as.integer(. > 0))) |>
-  left_join(
-    mp_abiotic |>
-      dplyr::select(plot_name, elevation, slope, hli, ndwi, temp, snowfree),
-      dplyr::select(-soil_tem_ave),
-    by = "plot_name"
-  )
+pa_matrix <- species_matrix_pa |>
+  as.data.frame() |>
+  tibble::rownames_to_column("plot") |>
+  dplyr::select(plot, dplyr::all_of(modelable_species)) |>
+  dplyr::left_join(sf::st_drop_geometry(rs), by = "plot")
 
 # Verify no NAs in predictors
 pa_matrix |>
@@ -59,17 +61,14 @@ x_train <- pa_matrix |>
   dplyr::select(all_of(pred_names)) |>
   as.data.frame()
 
-# Stack and name to match predictor names
-pred_rast_stack <- c(rast_dem_proc, rast_slope_proc, rast_ndwi_proc, rast_hli_proc, rast_snowfree_proc, rast_temp_proc)
-
-names(pred_rast_stack) <- pred_names
-
 # Convert to old raster format for embarcadero/dbarts
-pred_rast_stack_r <- raster::stack(pred_rast_stack)
+pred_rast_stack_r <- raster::stack(pred_stack)
 
 # Dataframe for prediction — keep NAs, track complete cases
-pred_df_r     <- as.data.frame(pred_rast_stack_r, na.rm = FALSE)
-complete_idx  <- complete.cases(pred_df_r)
+pred_df_r    <- as.data.frame(pred_rast_stack_r, na.rm = FALSE)
+complete_idx <- complete.cases(pred_df_r)
+
+identical(pred_names, names(pred_stack))
 
 #### BART fitting and spatial projection - parallel ############################
 
@@ -113,11 +112,6 @@ foreach(sp = modelable_species,
 stopCluster(cl)
 
 # Load saved rasters back into list
-species_rasts <- lapply(modelable_species, function(sp) {
-  rast(paste0("data/sdm_", gsub(" ", "_", sp), ".tif"))
-})
-names(species_rasts) <- modelable_species
-
 species_rasts <- lapply(modelable_species, function(sp) {
   rast(paste0("data/sdm_", gsub(" ", "_", sp), ".tif"))
 })
