@@ -170,77 +170,11 @@ ggplot(plot_meta, aes(x = cover_allplant, y = veg_height_species)) +
   theme_minimal()
 
 
-#### species frequency #########################################################
-
-species_frequency <- species_matrix |>
-  dplyr::select(-plot_name) |>
-  summarise(across(everything(), ~ sum(. > 0))) |>
-  pivot_longer(everything(), 
-               names_to = "species", 
-               values_to = "n_plots") |>
-  arrange(n_plots)
-
-print(species_frequency, n = Inf)
-
 
 #plot(aoi_buffered, border = "blue")
 #plot(aoi_masked, add = TRUE, border = "red")
 #plot(plots_sf, add = TRUE)
 #### aoi export to python/gee ##################################################
-
-
-#### raster standardising 1 ####################################################
-
-# Define reference raster - everything gets matched to this
-ref_rast <- rast("data/ndvi_export_2025.tif") |>
-  mask(aoi_masked) |> 
-  project("EPSG:32622")
-  
-plot(trim(ref_rast))
-plot(aoi_masked, add = TRUE)
-
-rast_dem_proc        <- rast_dem |> process_rast()
-rast_ndvi_proc       <- rast_ndvi |> process_rast()
-rast_ndwi_proc       <- rast_ndwi |> process_rast()
-rast_snowfree_proc   <- rast_snowfree |> process_rast()
-rast_slope_proc      <- rast_slope |> process_rast()
-#rast_aspect_proc     <- rast_aspect |> process_rast()
-#rast_aspect_cos_proc <- rast_aspect_cos |> process_rast()
-#rast_aspect_sin_proc <- rast_aspect_sin |> process_rast()
-
-#rast_tpi_proc        <- tpi |> process_rast()
-rast_hli_proc        <- hli |> process_rast()
-rast_temp_proc       <- temp_rast |> process_rast()
-
-sapply(list(rast_dem_proc, 
-            rast_ndvi_proc, 
-            rast_ndwi_proc, 
-            rast_snowfree_proc,
-            rast_slope_proc,
-            rast_aspect_proc,
-            rast_aspect_cos_proc,
-            rast_aspect_sin_proc,
-            rast_tpi_proc,
-            rast_hli_proc,
-            rast_temp_proc
-            ),
-function(r) crs(r, describe = TRUE)$code)
-
-plot(trim(rast_snowfree_proc))
-#### raster twi (calculating) ##################################################
-
-#commented out because I will use ndwi instead
-
-# wbt_fill_depressions("data/dem_crop.tif", "data/dem_filled.tif")
-# wbt_d8_flow_accumulation("data/dem_filled.tif", "data/sca.tif")
-# wbt_slope("data/dem_filled.tif", "data/slope_wb.tif", units = "degrees")
-# wbt_wetness_index(
-#   sca = "data/sca.tif",
-#   slope = "data/slope_wb.tif",
-#   output = "data/twi_calculated.tif"
-# )
-# 
-# twi_rast <- rast("data/twi_calculated.tif")
 
 #### sampling based on the new all tms file ####################################
 
@@ -317,90 +251,7 @@ tms_combined <- tms_combined |>
 
 summary(tms_combined)
 
-#### raster temp (interpolation) ###############################################
 
-# --- Temperature interpolation: predictor selection ---
-# Goal: pick a small, physically sensible set of spatial predictors to
-# interpolate mean growing-season soil temperature across the AOI.
-
-# --- Aggregate soil temperature per logger (growing season mean) ---
-temp_agg <- tms_long_filt |>
-  dplyr::filter(sensor_name == "TMS_T1") |>              # soil temp, 8 cm depth
-  dplyr::filter(lubridate::month(datetime) %in% 6:8) |>  # June–August
-  dplyr::summarise(
-    temp  = mean(value, na.rm = TRUE),
-    n_obs = dplyr::n(),
-    .by = c(serial, plot)
-  )
-
-summary(temp_agg)
-
-# --- Join temperature response to the spatial-predictor object ---
-tms_sf <- tms_sf |>
-  dplyr::mutate(serial = as.character(serial)) |>
-  dplyr::left_join(
-    temp_agg |> dplyr::select(serial, temp),
-    by = "serial"
-  )
-
-sum(is.na(tms_sf$temp))   # should be 0
-
-# check it landed and is complete
-sum(is.na(tms_sf$temp))   # should be 0
-names(tms_sf)
-
-#checking for multicolenearity
-cand <- c("elevation", "hli", "ndvi", "ndwi", "snowfree", "slope")
-
-# Correlation matrix among candidates: flags redundant predictors
-# (e.g. ndvi/ndwi). Informs interpretation, not inclusion by itself.
-round(cor(sf::st_drop_geometry(tms_sf)[, cand]), 2)
-
-# VIF on the full candidate model: quantifies multicollinearity.
-# Rule of thumb: >5 worth a look, >10 severe. Low VIF = safe to include.
-full <- lm(temp ~ elevation + hli + ndvi + ndwi + snowfree + slope,
-           data = tms_sf)
-vif(full)
-
-# --- Best-subset selection by cross-validated prediction error ---
-# Fit every non-empty subset of candidates; rank by LOOCV-RMSE.
-# Out-of-sample error (not in-sample R2) is the selection criterion.
-
-ctrl <- trainControl(method = "LOOCV", allowParallel = FALSE)
-
-preds <- c("elevation", "hli", "ndvi", "ndwi", "snowfree", "slope")
-
-# all non-empty subsets of the candidate predictors
-combos <- unlist(
-  lapply(seq_along(preds), \(k) combn(preds, k, simplify = FALSE)),
-  recursive = FALSE
-)
-
-# LOOCV-RMSE for each candidate model
-results <- sapply(combos, function(vars) {
-  f <- reformulate(vars, response = "temp")
-  train(f, data = tms_sf, method = "lm", trControl = ctrl)$results$RMSE
-})
-
-out <- data.frame(
-  vars = sapply(combos, paste, collapse = " + "),
-  n    = sapply(combos, length),
-  RMSE = results
-)
-
-out[order(out$RMSE), ] |> head(10)   # 10 best models by CV-RMSE
-# making a plot to visualise the lowest RMSE
-
-# --- Fit the selected temperature model ---
-# elevation + hli + ndvi + ndwi: lowest LOOCV-RMSE, all physically motivated,
-# comfortable for n = 69.
-temp_lm <- lm(temp ~ elevation + hli + ndvi + ndwi, data = tms_sf)
-summary(temp_lm)
-
-# Diagnostic plots: check linearity, normality, homoscedasticity, influence.
-par(mfrow = c(2, 2))
-plot(temp_lm)
-par(mfrow = c(1, 1))
 
 #### --- Residual variogram: is there spatial structure left for kriging? --- ####
 
