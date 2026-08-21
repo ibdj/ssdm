@@ -48,7 +48,7 @@ modelable_species <- species_frequency |>
   filter(n_plots >= 10) |>
   pull(species)
 
-species_matrix <- read_rds("data/species_matrix.rds")
+species_matrix_pa <- read_rds("data/species_matrix_pa.rds")
 
 # Build predictor + PA matrix
 pa_matrix <- species_matrix |>
