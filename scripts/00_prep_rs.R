@@ -48,3 +48,12 @@ aoi_masked <- buffer(aoi_masked, width = 10)   # 30 m outward; units = metres (U
 
 plot(aoi_masked) #add = TRUE
 plot(aoi_raw)
+
+#### raster import #############################################################
+
+rast_dem        <- rast("data/elevation_arcticdem-30_32622.tif") |> crop(aoi_masked)
+rast_ndvi       <- rast("data/ndvi_export_2025.tif") |> crop(aoi_masked)
+rast_ndwi       <- rast("data/ndwi.tif") 
+rast_snowfree   <- rast("data/snow_free_days.tif")
+
+rast_slope      <- terrain(rast_dem, v = "slope", unit = "degrees") |> crop(aoi_masked)
