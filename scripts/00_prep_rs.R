@@ -180,9 +180,20 @@ par(mfrow = c(2, 2)); plot(temp_lm); par(mfrow = c(1, 1))
 
 # interpolation with the model
 rast_temp <- terra::predict(pred_stack, temp_lm)
-names(rast_temp) <- "temp"
+names(rast_temp) <- "summer_t_int"
 plot(trim(rast_temp))
 
 summary(values(rast_temp), na.rm = TRUE)
 plot(trim(rast_temp > 12.7))   # where the loggers' observed max is exceeded
 
+#### writing output files ######################################################
+
+pred_stack <- c(pred_stack, rast_temp)
+names(pred_stack)   # elevation, slope, ndwi, snowfree, hli, temp
+
+rs <- plots_sf |>
+  dplyr::bind_cols(terra::extract(pred_stack, terra::vect(plots_sf), ID = FALSE))
+
+summary(rs)          # 130 rows, no NAs in the six predictors
+saveRDS(rs, "data/rs.rds")
+writeRaster(pred_stack, "data/pred_stack.tif", overwrite = TRUE)
