@@ -91,6 +91,9 @@ foreach(sp = modelable_species,
             seed = which(modelable_species == sp)
           )
           
+          invisible(model$fit$state)   # forces C++ tree state into the R object
+          saveRDS(model, paste0("data/bart_pa_", gsub(" ", "_", sp), ".rds"))
+          
           # Predict only on complete cases
           pred_vals <- dbarts:::predict.bart(model, 
                                              newdata = pred_df_r[complete_idx, ])
@@ -183,22 +186,12 @@ cv_results |>
   print(n = Inf)
 
 #### diagnostics ###############################################################
-
-# Refit models in main session for diagnostics (no parallel - need objects)
-bart_models <- list()
-
-for(sp in modelable_species) {
-  cat("Fitting BART for diagnostics:", sp, "\n")
-  
-  train_data <- cbind(x_train, y = pa_matrix[[sp]]) |> as.data.frame()
-  
-  bart_models[[sp]] <- dbarts::bart2(
-    y ~ .,
-    data = train_data,
-    keepTrees = TRUE,
-    seed = which(modelable_species == sp)
-  )
-}
+# Load the fitted models from the parallel loop (same models as the rasters)
+bart_models <- setNames(
+  lapply(modelable_species,
+         \(sp) readRDS(paste0("data/bart_pa_", gsub(" ", "_", sp), ".rds"))),
+  modelable_species
+)
 
 # Training AUC
 auc_results <- map_dfr(modelable_species, function(sp) {
@@ -219,7 +212,8 @@ auc_results <- map_dfr(modelable_species, function(sp) {
   arrange(desc(auc))
 
 # In PA script, after fitting bart_models list:
-saveRDS(bart_models, "data/bart_models_pa.rds")
+saveRDS(model, paste0("data/bart_pa_", gsub(" ", "_", sp), ".rds"))
+
 #### explanatory ###############################################################
 
 #### variable importance #######################################################
@@ -322,7 +316,7 @@ ggplot(plot_data, aes(x = r2_drop_norm, y = species, fill = variable)) +
       "ndwi"           = "#1f77b4",
       "hli"            = "#9467bd",
       "snowfree"       = "#e377c2",
-      "temp"           = "#d62728",
+      "summer_t_int"   = "#d62728",
       "Unexplained"    = "#D9D9D9"
     )
   ) +
