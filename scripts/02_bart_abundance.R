@@ -20,16 +20,88 @@ library(spatialEco) # for radiation / heat load index
 library(car)
 library(doParallel)
 
-#### cover matrix ##############################################################
-# Build cover matrix (replaces pa_matrix)
-cover_matrix <- species_matrix |>
-  dplyr::select(plot_name, all_of(modelable_species)) |>
-  left_join(
-    mp_abiotic |>
-      dplyr::select(plot_name, elevation, slope, hli, ndwi, temp, snowfree),
-    by = "plot_name"
-  )
+#### reading rds ###############################################################
 
+rs <- readRDS("~/OneDrive - Aarhus universitet/MappingPlants/02 Modelling future changes/ssdm/data/rs.rds")
+species_matrix_cover <- readRDS("~/OneDrive - Aarhus universitet/MappingPlants/02 Modelling future changes/ssdm/data/species_matrix_cover.rds")
+species_frequency <- readRDS("~/OneDrive - Aarhus universitet/MappingPlants/02 Modelling future changes/ssdm/data/species_frequency.rds")
+bart_models_pa <- readRDS("~/OneDrive - Aarhus universitet/MappingPlants/02 Modelling future changes/ssdm/data/bart_models_pa.rds")
+
+#### setup #####################################################################
+set.seed(42)
+
+pred_stack <- rast("data/pred_stack.tif")
+pred_names <- names(pred_stack)
+
+modelable_species <- readRDS("data/species_frequency.rds") |>
+  dplyr::filter(n_plots >= 10) |>
+  dplyr::pull(taxon)
+
+cover_matrix <- readRDS("data/species_matrix_cover.rds") |>
+  as.data.frame() |>
+  tibble::rownames_to_column("plot") |>
+  dplyr::select(plot, dplyr::all_of(modelable_species)) |>
+  dplyr::left_join(sf::st_drop_geometry(rs), by = "plot")
+
+x_train_all <- cover_matrix |>
+  dplyr::select(dplyr::all_of(pred_names)) |>
+  as.data.frame()
+
+# prediction df (same as PA script)
+pred_rast_stack_r <- raster::stack(pred_stack)
+pred_df_r    <- as.data.frame(pred_rast_stack_r, na.rm = FALSE)
+complete_idx <- complete.cases(pred_df_r)
+
+#### hurdle fitting and projection - parallel ##################################
+cl <- makeCluster(4)
+registerDoParallel(cl)
+clusterSetRNGStream(cl, 42)
+clusterExport(cl, c("cover_matrix", "x_train_all", "pred_df_r",
+                    "complete_idx", "pred_rast_stack_r", "modelable_species"))
+
+foreach(sp = modelable_species,
+        .packages = c("dbarts", "raster"),
+        .errorhandling = "pass") %dopar% {
+          
+          # conditional data: presence plots only
+          pres <- which(cover_matrix[[sp]] > 0)
+          train_data <- cbind(x_train_all[pres, ], y = cover_matrix[[sp]][pres]) |>
+            as.data.frame()
+          
+          model <- dbarts::bart2(
+            y ~ .,
+            data = train_data,
+            keepTrees = TRUE,
+            seed = which(modelable_species == sp)
+          )
+          
+          invisible(model$fit$state)
+          saveRDS(model, paste0("data/bart_cov_", gsub(" ", "_", sp), ".rds"))
+          
+          # conditional cover over AOI
+          cov_vals <- colMeans(dbarts:::predict.bart(model,
+                                                     newdata = pred_df_r[complete_idx, ]))
+          cov_full <- rep(NA_real_, nrow(pred_df_r))
+          cov_full[complete_idx] <- pmax(cov_vals, 0)          # clamp negatives
+          
+          cov_rast <- raster::raster(pred_rast_stack_r[[1]])
+          raster::values(cov_rast) <- cov_full
+          
+          # hurdle = PA prob × conditional cover
+          pa_rast     <- raster::raster(paste0("data/sdm_", gsub(" ", "_", sp), ".tif"))
+          hurdle_rast <- pa_rast * cov_rast
+          
+          raster::writeRaster(cov_rast,
+                              paste0("data/cov_", gsub(" ", "_", sp), ".tif"), overwrite = TRUE)
+          raster::writeRaster(hurdle_rast,
+                              paste0("data/hurdle_", gsub(" ", "_", sp), ".tif"), overwrite = TRUE)
+          
+          c(sp, length(pres))
+        }
+stopCluster(cl)
+
+
+#############################
 #### running PA BART first (for hurdle apporach due to 0-inflation) ############
 
 cl <- makeCluster(4)
