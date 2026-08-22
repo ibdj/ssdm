@@ -100,6 +100,43 @@ foreach(sp = modelable_species,
         }
 stopCluster(cl)
 
+#### CV conditional model ######################################################
+cl <- makeCluster(4)
+registerDoParallel(cl)
+clusterSetRNGStream(cl, 42)
+clusterExport(cl, c("cover_matrix", "x_train_all", "modelable_species"))
+
+cv_cov <- foreach(sp = modelable_species,
+                  .packages = "dbarts",
+                  .combine = rbind,
+                  .errorhandling = "pass") %dopar% {
+
+  pres <- which(cover_matrix[[sp]] > 0)
+  y    <- cover_matrix[[sp]][pres]
+  x    <- x_train_all[pres, ]
+
+  folds <- sample(rep(1:5, length.out = length(y)))
+
+  fold_stats <- sapply(1:5, function(k) {
+    tr <- which(folds != k); te <- which(folds == k)
+    m  <- dbarts::bart2(y ~ ., data = cbind(x[tr, ], y = y[tr]) |> as.data.frame(),
+                        keepTrees = TRUE,
+                        seed = which(modelable_species == sp) * k)
+    p  <- pmax(colMeans(dbarts:::predict.bart(m, newdata = as.data.frame(x[te, ]))), 0)
+    c(rmse = sqrt(mean((y[te] - p)^2)), sse = sum((y[te] - p)^2))
+  })
+
+  ss_tot <- sum((y - mean(y))^2)
+  data.frame(species  = sp,
+             n_pres   = length(y),
+             cv_rmse  = mean(fold_stats["rmse", ]),
+             cv_r2    = 1 - sum(fold_stats["sse", ]) / ss_tot)
+}
+stopCluster(cl)
+
+cv_cov |> dplyr::arrange(dplyr::desc(cv_r2))
+
+
 
 #############################
 #### running PA BART first (for hurdle apporach due to 0-inflation) ############
