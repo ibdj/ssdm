@@ -29,8 +29,8 @@ generate_dataframe <- function(number, data = survey_0) {
   bb_col     <- paste0("taxon_", number, "_bb")
   
   # everything that is NOT a per-taxon column = the shared plot metadata
-  taxon_pattern <- "^taxon_\\d+(_height|_braun_blanquet)?$"
-  meta_cols <- setdiff(names(data), grep(taxon_pattern, names(data), value = TRUE))
+taxon_pattern <- "^taxon_\\d+(_height|_braun_blanquet)?$"
+meta_cols <- setdiff(names(data), grep(taxon_pattern, names(data), value = TRUE))
   
   data |>
     dplyr::select(dplyr::all_of(c(meta_cols, taxon_col, height_col, bb_col))) |>
@@ -51,8 +51,8 @@ survey_0 <- read_csv("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingP
   clean_names() |>  
   mutate(rowid = row_number()) |> 
   dplyr::rename_with(~ gsub("braun_blanquet", "bb", .x)) |> 
-  mutate(plot_name = toupper(plot_name)) |> 
-  filter(grepl('MP', plot_name))
+  mutate(plot = toupper(plot_name)) |> 
+  filter(grepl('MP', plot))
   
 
 # find the highest taxon slot present in the data
@@ -67,7 +67,7 @@ summary(survey_0)
 
 survey_0 <- survey_0 |> 
   dplyr::select(
-    plot_name,
+    plot,
     vegetation_height_n,
     vegetation_height_e,
     vegetation_height_s,
@@ -166,7 +166,7 @@ species_long <- survey_0_ren |>
 
 species_long <- species_long |>
   dplyr::mutate(cover = bb_to_cover(bb)) |> 
-  group_by(plot_name, taxon) |>
+  group_by(plot, taxon) |>
   slice_max(cover, n = 1, with_ties = FALSE) |>
   ungroup() |> 
   left_join(eco_veg_growth_forms, by = "taxon")
@@ -181,19 +181,20 @@ species_only_long <- species_long |>
   distinct()
 
 species_matrix <- species_long |>
-  dplyr::select(plot_name, taxon, cover) |>
+  dplyr::select(plot, taxon, cover) |>
   tidyr::pivot_wider(names_from = taxon, values_from = cover, values_fill = 0) |>
-  dplyr::right_join(dplyr::distinct(survey_0, plot_name), by = "plot_name") |>
-  dplyr::mutate(dplyr::across(-plot_name, ~ tidyr::replace_na(.x, 0)))
+  dplyr::right_join(dplyr::distinct(survey_0, plot), by = "plot") |>
+  dplyr::mutate(dplyr::across(-plot, ~ tidyr::replace_na(.x, 0)))
 
 species_matrix_cover <- species_matrix |>
-  tibble::column_to_rownames("plot_name")
+  tibble::column_to_rownames("plot")
 
 species_matrix_pa <- (species_matrix_cover > 0) * 1
 
 #### plots geometry ############################################################
-plots_sf <- survey_0_ren |>
-  dplyr::distinct(plot_name, x, y) |>
+plots_sf <- survey_0 |>
+  dplyr::distinct(plot, .keep_all = TRUE) |>
+  dplyr::select(plot, x, y) |>
   sf::st_as_sf(coords = c("x", "y"), crs = 4326) |>
   sf::st_transform(32622)
 
@@ -208,7 +209,7 @@ species_frequency <- species_long |>
 saveRDS(plots_sf, "data/plots_sf.rds")
 saveRDS(species_frequency, "data/species_frequency.rds")
 saveRDS(species_long, "data/species_long.rds")
-saveRDS(species_matrix_out, "data/species_matrix_cover.rds")
+saveRDS(species_matrix_cover, "data/species_matrix_cover.rds")
 saveRDS(species_matrix_pa, "data/species_matrix_pa.rds")
 
 
