@@ -76,8 +76,6 @@ rast_ndwi_proc       <- rast_ndwi |> process_rast()
 rast_snowfree_proc   <- rast_snowfree |> process_rast()
 rast_slope_proc      <- rast_slope |> process_rast()
 
-rast_temp_proc       <- temp_rast |> process_rast()
-
 sapply(list(rast_dem_proc, 
             rast_ndvi_proc, 
             rast_ndwi_proc, 
@@ -127,7 +125,6 @@ tms_sf <- tms_sf |>
   dplyr::bind_cols(terra::extract(pred_stack, terra::vect(tms_sf), ID = FALSE))
 
 summary(tms_sf)   # check: no NAs in the five new columns
-
 
 #checking for multicolenearity
 cand <- c("elevation", "hli", "ndwi", "snowfree", "slope")
@@ -195,5 +192,6 @@ rs <- plots_sf |>
   dplyr::bind_cols(terra::extract(pred_stack, terra::vect(plots_sf), ID = FALSE))
 
 summary(rs)          # 130 rows, no NAs in the six predictors
+
 saveRDS(rs, "data/rs.rds")
 writeRaster(pred_stack, "data/pred_stack.tif", overwrite = TRUE)
