@@ -21,3 +21,55 @@ deltas
 
 #### setup #####################################################################
 set.seed(42)
+
+pred_stack <- rast("data/pred_stack.tif")
+pred_names <- names(pred_stack)
+
+modelable_species <- readRDS("data/species_frequency.rds") |>
+  dplyr::filter(n_plots >= 10) |>
+  dplyr::pull(taxon)
+
+deltas <- c(ssp126 = 0.9428791, ssp245 = 1.9663557,
+            ssp370 = 2.8462466, ssp585 = 3.8888474)
+
+for (sc in names(deltas)) {
+  
+  stack_sc <- pred_stack
+  stack_sc[["summer_t_int"]] <- stack_sc[["summer_t_int"]] + deltas[[sc]]
+  
+  stack_sc_r <- raster::stack(stack_sc)
+  pred_df    <- as.data.frame(stack_sc_r, na.rm = FALSE)
+  idx        <- complete.cases(pred_df)
+  
+  for (sp in modelable_species) {
+    model <- readRDS(paste0("data/bart_pa_", gsub(" ", "_", sp), ".rds"))
+    p     <- colMeans(dbarts:::predict.bart(model, newdata = pred_df[idx, ]))
+    
+    full  <- rep(NA_real_, nrow(pred_df)); full[idx] <- p
+    r     <- raster::raster(stack_sc_r[[1]]); raster::values(r) <- full
+    raster::writeRaster(r,
+                        paste0("data/sdm_", gsub(" ", "_", sp), "_", sc, ".tif"), overwrite = TRUE)
+  }
+  cat(sc, "done\n")
+}
+
+#### change maps and richness stacks ###########################################
+scenarios <- names(deltas)
+
+# stacked richness (sum of PA probabilities) per time slice
+richness <- list()
+
+richness$present <- rast(lapply(modelable_species, \(sp)
+                                rast(paste0("data/sdm_", gsub(" ", "_", sp), ".tif")))) |> sum()
+
+for (sc in scenarios) {
+  richness[[sc]] <- rast(lapply(modelable_species, \(sp)
+                                rast(paste0("data/sdm_", gsub(" ", "_", sp), "_", sc, ".tif")))) |> sum()
+  writeRaster(richness[[sc]] - richness$present,
+              paste0("data/richness_change_", sc, ".tif"), overwrite = TRUE)
+}
+writeRaster(richness$present, "data/richness_present.tif", overwrite = TRUE)
+
+# per-species change, headline scenario example
+plot(trim(rast(paste0("data/sdm_Betula_nana_ssp585.tif")) -
+            rast("data/sdm_Betula_nana.tif")))
