@@ -185,6 +185,46 @@ cv_results |>
   tibble::as_tibble() |> 
   print(n = Inf)
 
+
+#### learning curves ###########################################################
+sizes <- c(30, 50, 70, 90, 110, 130)
+
+cl <- makeCluster(4)
+registerDoParallel(cl)
+clusterSetRNGStream(cl, 42)
+clusterExport(cl, c("pa_matrix", "x_train", "modelable_species"))
+
+learn_curves <- foreach(sp = modelable_species,
+                        .packages = c("dbarts", "pROC"),
+                        .combine = rbind,
+                        .errorhandling = "remove") %dopar% {
+                          
+                          y <- pa_matrix[[sp]]
+                          
+                          do.call(rbind, lapply(sizes, function(n) {
+                            aucs <- sapply(1:5, function(rep) {
+                              idx_train <- sample(seq_along(y), n)
+                              idx_test  <- setdiff(seq_along(y), idx_train)
+                              if (length(unique(y[idx_train])) < 2 ||
+                                  length(unique(y[idx_test]))  < 2) return(NA)
+                              
+                              m <- dbarts::bart2(y ~ .,
+                                                 data = cbind(x_train[idx_train, ], y = y[idx_train]) |> as.data.frame(),
+                                                 keepTrees = TRUE, seed = rep)
+                              p <- colMeans(dbarts:::predict.bart(m,
+                                                                  newdata = as.data.frame(x_train[idx_test, ])))
+                              as.numeric(auc(roc(y[idx_test], p, quiet = TRUE)))
+                            })
+                            data.frame(species = sp, n_train = n, mean_auc = mean(aucs, na.rm = TRUE))
+                          }))
+                        }
+stopCluster(cl)
+
+ggplot(learn_curves, aes(n_train, mean_auc, colour = species)) +
+  geom_line() +
+  labs(x = "Training sample size", y = "Mean AUC", title = "Learning curves") +
+  theme_minimal()
+
 #### diagnostics ###############################################################
 # Load the fitted models from the parallel loop (same models as the rasters)
 bart_models <- setNames(
