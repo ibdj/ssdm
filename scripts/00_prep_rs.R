@@ -99,7 +99,7 @@ plot(aoi_masked, add = TRUE) #add = TRUE
 
 rast_hli_proc        <- hli |> process_rast()
 
-#### raster temp (interpolation) ###############################################
+#### raster summer temp (interpolation) ########################################
 
 # --- Temperature interpolation: predictor selection ---
 # Goal: pick a small, physically sensible set of spatial predictors to
