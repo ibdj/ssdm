@@ -73,3 +73,62 @@ writeRaster(richness$present, "data/richness_present.tif", overwrite = TRUE)
 # per-species change, headline scenario example
 plot(trim(rast(paste0("data/sdm_Betula_nana_ssp585.tif")) -
             rast("data/sdm_Betula_nana.tif")))
+
+plot(trim(rast(paste0("data/sdm_Betula_nana_ssp126.tif")) -
+            rast("data/sdm_Betula_nana.tif")))
+
+sapply(names(deltas), \(sc)
+       global(richness[[sc]] - richness$present, "mean", na.rm = TRUE)[1, 1])
+
+
+#### pr species change #########
+
+sp_change <- map_dfr(modelable_species, function(sp) {
+  pres <- rast(paste0("data/sdm_", gsub(" ", "_", sp), ".tif"))
+  map_dfr(names(deltas), function(sc) {
+    fut <- rast(paste0("data/sdm_", gsub(" ", "_", sp), "_", sc, ".tif"))
+    tibble(species = sp, scenario = sc,
+           mean_change = global(fut - pres, "mean", na.rm = TRUE)[1, 1])
+  })
+})
+
+sp_change |>
+  pivot_wider(names_from = scenario, values_from = mean_change) |>
+  arrange(desc(ssp585)) |>
+  print(n = 17)
+
+#### partial dependence: summer_t_int ##########################################
+x_train <- readRDS("data/rs.rds") |> sf::st_drop_geometry() |>
+  dplyr::select(dplyr::all_of(pred_names)) |> as.data.frame()
+
+t_grid <- seq(min(x_train$summer_t_int), max(x_train$summer_t_int) + 3.9,
+              length.out = 40)   # extend into projection range
+
+pd <- map_dfr(modelable_species, function(sp) {
+  model <- readRDS(paste0("data/bart_pa_", gsub(" ", "_", sp), ".rds"))
+  map_dfr(t_grid, function(tv) {
+    x_pd <- x_train
+    x_pd$summer_t_int <- tv
+    tibble(species = sp, summer_t_int = tv,
+           p = mean(colMeans(dbarts:::predict.bart(model, newdata = x_pd))))
+  })
+})
+
+ggplot(pd, aes(summer_t_int, p)) +
+  geom_line() +
+  geom_vline(xintercept = max(x_train$summer_t_int), linetype = 2, colour = "grey50") +
+  facet_wrap(~ species, scales = "free_y") +
+  labs(x = "Interpolated summer soil temperature (°C)",
+       y = "Mean predicted P(presence)") +
+  theme_minimal() +
+  theme(strip.text = element_text(face = "italic"))
+
+cover_matrix |>   # or pa_matrix
+  tidyr::pivot_longer(dplyr::all_of(modelable_species), names_to = "species", values_to = "pa") |>
+  dplyr::filter(pa > 0) |>
+  dplyr::summarise(ndwi_mean = mean(ndwi), .by = species) |> arrange(desc(ndwi_mean))
+  dplyr::arrange(dplyr::desc(ndwi_mean))  
+
+  #dplyr::summarise(t_mean = mean(summer_t_int), n = dplyr::n(), .by = species) |>
+  #dplyr::arrange(dplyr::desc(t_mean))
+
