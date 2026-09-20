@@ -183,6 +183,93 @@ plot(trim(rast_temp))
 summary(values(rast_temp), na.rm = TRUE)
 plot(trim(rast_temp > 12.7))   # where the loggers' observed max is exceeded
 
+#### raster winter temp (interpolation) ########################################
+
+# --- Temperature interpolation: predictor selection ---
+# Goal: pick a small, physically sensible set of spatial predictors to
+# interpolate mean growing-season soil temperature across the AOI.
+
+# --- import the tms data and metrics ---
+tms_all_sf <- readRDS("~/OneDrive - Aarhus universitet/MappingPlants/02 Modelling future changes/ssdm/data/tms_all_sf.rds") |> 
+  mutate(serial_number = as.character(serial_number))
+tms_metrics <- readRDS("~/OneDrive - Aarhus universitet/MappingPlants/02 Modelling future changes/ssdm/data/tms_metrics.rds")
+
+names(tms_all_sf)
+
+common <- intersect(names(tms_all_sf), names(tms_metrics))
+print(common)   # expect serial (+ plot?), no value columns
+tms_sf <- dplyr::left_join(tms_all_sf, tms_metrics, by = common)
+
+# definting prediction stack 
+pred_stack <- rast("data/pred_stack.tif")
+
+names(pred_stack) <- c("elevation", "slope", "ndwi", "snowfree", "hli", "summer_t_int")
+
+tms_sf <- tms_sf |>
+  dplyr::bind_cols(terra::extract(pred_stack, terra::vect(tms_sf), ID = FALSE))
+
+summary(tms_sf)   # check: no NAs in the five new columns
+
+#checking for multicolenearity
+cand <- c("elevation", "hli", "ndwi", "snowfree", "slope")
+
+# Correlation matrix among candidates: flags redundant predictors
+# (e.g. ndvi/ndwi). Informs interpretation, not inclusion by itself.
+round(cor(sf::st_drop_geometry(tms_sf)[, cand]), 2)
+
+# VIF on the full candidate model: quantifies multicollinearity.
+# Rule of thumb: >5 worth a look, >10 severe. Low VIF = safe to include.
+full_w <- lm(winter_t ~ elevation + hli + ndwi + snowfree + slope,
+           data = tms_sf)
+vif(full_w)
+
+# --- Best-subset selection by cross-validated prediction error ---
+# Fit every non-empty subset of candidates; rank by LOOCV-RMSE.
+# Out-of-sample error (not in-sample R2) is the selection criterion.
+
+ctrl <- trainControl(method = "LOOCV", allowParallel = FALSE)
+
+preds <- c("elevation", "hli", "ndwi", "snowfree", "slope")
+
+# all non-empty subsets of the candidate predictors
+combos <- unlist(
+  lapply(seq_along(preds), \(k) combn(preds, k, simplify = FALSE)),
+  recursive = FALSE
+)
+
+# LOOCV-RMSE for each candidate model
+results <- sapply(combos, function(vars) {
+  f <- reformulate(vars, response = "winter_t")
+  train(f, data = tms_sf, method = "lm", trControl = ctrl)$results$RMSE
+})
+
+out <- data.frame(
+  vars = sapply(combos, paste, collapse = " + "),
+  n    = sapply(combos, length),
+  RMSE = results
+)
+
+out[order(out$RMSE), ] |> head(10)   # 10 best models by CV-RMSE
+# making a plot to visualise the lowest RMSE
+
+sd(tms_sf$winter_t)                                # ≈ null RMSE
+summary(lm(winter_t ~ ndwi, data = tms_sf))        # R², slope sign
+
+# --- Fit the selected temperature model ---
+# elevation + hli + ndvi + ndwi: lowest LOOCV-RMSE, all physically motivated,
+# comfortable for n = 69.
+temp_w_lm <- lm(winter_t ~ hli + ndwi + slope, data = tms_sf)
+summary(temp_lm)
+par(mfrow = c(2, 2)); plot(temp_lm); par(mfrow = c(1, 1))
+
+# interpolation with the model
+rast_temp <- terra::predict(pred_stack, temp_lm)
+names(rast_temp) <- "summer_t_int"
+plot(trim(rast_temp))
+
+summary(values(rast_temp), na.rm = TRUE)
+plot(trim(rast_temp > 12.7))   # where the loggers' observed max is exceeded
+
 #### writing output files ######################################################
 
 pred_stack <- c(pred_stack, rast_temp)
