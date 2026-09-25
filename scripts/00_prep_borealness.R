@@ -5,13 +5,29 @@ library(terra)
 library(dplyr)
 library(ggplot2)
 
-my_species <- read_rds("data/species_frequency.rds") |> 
-  select(taxon)
+fog_maps <- read_excel("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/fog_maps.xlsx")
+
+#my_species <- read_rds("data/species_frequency.rds") |> 
+#  select(taxon)
+
+my_species <- fog_maps |> 
+  mutate(scientificName = taxa) |> 
+  select(scientificName)
+
+matched <- purrr::map(my_species$scientificName, \(x) {
+  r <- tryCatch(rgbif::name_backbone(name = x), error = \(e) NULL)
+  if (is.null(r)) { Sys.sleep(5); r <- rgbif::name_backbone(name = x) }
+  r
+}, .progress = TRUE) |>
+  purrr::list_rbind()
+
+saveRDS(matched, "data/gbif_backbone_match.rds")
 
 # 1. Match your names to the GBIF backbone
-keys <- name_backbone_checklist(my_species) |>
+keys <- matched |>
   filter(matchType %in% c("EXACT", "FUZZY")) |>   # inspect fuzzy ones manually
   pull(usageKey)
+
 
 # 2. One bulk download (needs GBIF credentials in .Renviron)
 d <- occ_download(
