@@ -7,6 +7,9 @@ library(ggplot2)
 
 fog_maps <- read_excel("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/fog_maps.xlsx")
 
+Gronlands_flora_distribution <- read_excel("~/Desktop/Gronlands_flora_distribution.xlsx") |> 
+  
+
 #my_species <- read_rds("data/species_frequency.rds") |> 
 #  select(taxon)
 
