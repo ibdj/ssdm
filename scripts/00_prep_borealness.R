@@ -40,12 +40,15 @@ d <- occ_download(
 )
 occ_download_wait(d)
 occ <- occ_download_get(d) |> occ_download_import()
+saveRDS(occ, "data/occ_raw.rds")
 
 # 3. Clean
 occ <- occ |> clean_coordinates(lon = "decimalLongitude", lat = "decimalLatitude",
                                 tests = c("centroids", "institutions", "equal", "zeros", "seas")) |>
   filter(.summary)
+saveRDS(occ, "data/occ_clean.rds")
 
+occ <- readRDS("data/occ_clean.rds")
 # 4. Biome raster (once): WWF ecoregions -> boreal (6) / tundra (11) on EPSG:6931 grid
 
 # WWF ecoregions: download "official teow" shapefile (e.g. via WWF site)
@@ -68,6 +71,7 @@ stopifnot(nrow(eco) > 0)   # guard: fail loudly, not with an empty raster
 eco_v   <- vect(eco)
 grid    <- rast(ext(eco_v), resolution = 50000, crs = "EPSG:6931")
 biome_r <- rasterize(eco_v, grid, field = "BIOME")
+writeRaster(biome_r, "data/biome_r.tif")
 
 biome_freq <- terra::freq(biome_r)
 n_cells_boreal_total <- biome_freq$count[biome_freq$value == 6]
