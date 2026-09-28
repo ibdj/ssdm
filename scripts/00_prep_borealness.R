@@ -2,13 +2,29 @@ library(rgbif)
 library(CoordinateCleaner)
 library(sf)
 library(terra)
-library(dplyr)
+library(tidyverse)
 library(ggplot2)
+library(janitor)
 
 fog_maps <- read_excel("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/fog_maps.xlsx")
 
-Gronlands_flora_distribution <- read_excel("~/Desktop/Gronlands_flora_distribution.xlsx") |> 
+  Gronlands_flora_distribution <- read_excel("~/Desktop/Gronlands_flora_distribution.xlsx") |> 
+    clean_names()
   
+  distributions <- Gronlands_flora_distribution |> 
+    select(taxon, n,n_wn,n_wm,n_ws,c_wn,c_wm,c_ws,s_wn,s_wm, s_ws, s, sen, sem, ses, n_en, n_em, n_es, cen, cem, ces)
+  #nw, cw, sw, se, ne, ce,
+  
+  distributions_long <- distributions |> 
+    pivot_longer(cols = 2:21, names_to = "distrikt", values_to = "abundance") |> 
+    mutate(distrikt = as.factor(distrikt), abundance = as.factor(abundance)) |> 
+    filter(!is.na(abundance))
+    
+  summary(distributions_long)  
+  
+  distributions_long  |>  
+    count(abundance) |> 
+    print(n = Inf)
 
 #my_species <- read_rds("data/species_frequency.rds") |> 
 #  select(taxon)
@@ -31,6 +47,7 @@ keys <- matched |>
   filter(matchType %in% c("EXACT", "FUZZY")) |>   # inspect fuzzy ones manually
   pull(usageKey)
 
+saveRDS(keys, "data/keys.rds")
 
 # 2. One bulk download (needs GBIF credentials in .Renviron)
 d <- occ_download(
@@ -46,12 +63,18 @@ occ <- occ_download_get(d) |> occ_download_import()
 saveRDS(occ, "data/occ_raw.rds")
 
 # 3. Clean
-occ <- occ |> clean_coordinates(lon = "decimalLongitude", lat = "decimalLatitude",
-                                tests = c("centroids", "institutions", "equal", "zeros", "seas")) |>
-  filter(.summary)
-saveRDS(occ, "data/occ_clean.rds")
+occ_clean <- occ |>
+  as.data.frame() |>
+  cc_val(lon = "decimalLongitude", lat = "decimalLatitude") |>
+  cc_equ(lon = "decimalLongitude", lat = "decimalLatitude") |>
+  cc_zero(lon = "decimalLongitude", lat = "decimalLatitude") |>
+  cc_cen(lon = "decimalLongitude", lat = "decimalLatitude", buffer = 1000) |>
+  cc_inst(lon = "decimalLongitude", lat = "decimalLatitude")
 
-occ <- readRDS("data/occ_clean.rds")
+saveRDS(occ_clean, "data/occ_clean.rds")
+
+occ_clean <- readRDS("data/occ_clean.rds")
+
 # 4. Biome raster (once): WWF ecoregions -> boreal (6) / tundra (11) on EPSG:6931 grid
 
 # WWF ecoregions: download "official teow" shapefile (e.g. via WWF site)
@@ -75,6 +98,11 @@ eco_v   <- vect(eco)
 grid    <- rast(ext(eco_v), resolution = 50000, crs = "EPSG:6931")
 biome_r <- rasterize(eco_v, grid, field = "BIOME")
 writeRaster(biome_r, "data/biome_r.tif")
+
+# checking that all data is save
+file.exists(c("data/gbif_backbone_match.rds", "data/occ_raw.rds", "data/occ_clean.rds", "data/biome_r.tif", "data/keys.rds"))
+
+biome_r <- rast("data/biome_r.tif")     # if the tif exists
 
 biome_freq <- terra::freq(biome_r)
 n_cells_boreal_total <- biome_freq$count[biome_freq$value == 6]
