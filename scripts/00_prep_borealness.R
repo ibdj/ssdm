@@ -76,6 +76,14 @@ saveRDS(occ_clean, "data/occ_clean.rds")
 
 occ_clean <- readRDS("data/occ_clean.rds")
 
+# chekcing the lenght of the species lists ###
+
+length(keys)                              # ~500 expected
+dplyr::n_distinct(occ$species)            # the download
+dplyr::n_distinct(occ_clean$species)
+dplyr::n_distinct(occ_cells$species)
+dplyr::n_distinct(idx$species)
+
 # 4. Biome raster (once): WWF ecoregions -> boreal (6) / tundra (11) on EPSG:6931 grid
 
 # WWF ecoregions: download "official teow" shapefile (e.g. via WWF site)
