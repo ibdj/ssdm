@@ -5,6 +5,7 @@ library(terra)
 library(tidyverse)
 library(ggplot2)
 library(janitor)
+library(readxl)
 
 fog_maps <- read_excel("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/fog_maps.xlsx")
 
