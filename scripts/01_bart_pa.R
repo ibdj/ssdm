@@ -381,3 +381,4 @@ ggplot(x_train_long, aes(x = value)) +
   labs(x = "Value", y = "Number of plots",
        title = "Distribution of plots across environmental predictors") +
   theme_minimal()
+
