@@ -70,6 +70,13 @@ for (sc in scenarios) {
 }
 writeRaster(richness$present, "data/richness_present.tif", overwrite = TRUE)
 
+# Plot change for first scenario
+plot(trim(rast(paste0("data/richness_present.tif"))))
+plot(trim(rast(paste0("data/richness_change_", scenarios[1], ".tif"))))
+plot(trim(rast(paste0("data/richness_change_", scenarios[2], ".tif"))))
+plot(trim(rast(paste0("data/richness_change_", scenarios[3], ".tif"))))
+
+
 # per-species change, headline scenario example
 plot(trim(rast(paste0("data/sdm_Betula_nana_ssp585.tif")) -
             rast("data/sdm_Betula_nana.tif")))
