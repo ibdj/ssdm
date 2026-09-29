@@ -6,6 +6,7 @@ library(tidyverse)
 library(ggplot2)
 library(janitor)
 library(readxl)
+library(tidyterra)
 
 fog_maps <- read_excel("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/fog_maps.xlsx")
 
@@ -73,6 +74,9 @@ occ <- data.table::fread(
   quote = ""
 )
 
+dplyr::n_distinct(occ$species)     # should now be ~460-480, not 74
+saveRDS(occ, "data/occ_raw_full.rds")sa
+
 # 3. Clean
 occ_clean <- occ |>
   as.data.frame() |>
@@ -86,9 +90,6 @@ saveRDS(occ_clean, "data/occ_clean.rds")
 
 occ_clean <- readRDS("data/occ_clean.rds")
 
-
-dplyr::n_distinct(occ$species)     # should now be ~460-480, not 74
-saveRDS(occ, "data/occ_raw_full.rds")
 
 # chekcing the lenght of the species lists ###
 
@@ -186,4 +187,69 @@ ggplot(idx, aes(B, B_std)) +
   ggrepel::geom_text_repel(data = \(d) dplyr::filter(d, abs(B - B_std) > 0.1),
                            aes(label = species), size = 2.5) +
   theme_minimal()
+
+## ============================================================
+## GREENLAND MAP  (separate relaxed download; index `idx` stays
+## the strict circumpolar version — do not mix the two)
+## ============================================================
+
+# --- GL download (heavy, run once; no uncertainty filter) ---
+# d_gl <- occ_download(
+#   pred_in("taxonKey", keys),
+#   pred("country", "GL"),
+#   pred("hasCoordinate", TRUE),
+#   pred("hasGeospatialIssue", FALSE),
+#   pred_in("basisOfRecord", c("PRESERVED_SPECIMEN", "HUMAN_OBSERVATION")),
+#   format = "SIMPLE_CSV"
+# )
+# occ_download_wait(d_gl)
+# occ_gl <- occ_download_get(d_gl) |> occ_download_import()
+# saveRDS(occ_gl, "data/occ_raw_gl.rds")
+# writeLines(as.character(d_gl), "data/download_key_gl.txt")
+occ_gl <- readRDS("data/occ_raw_gl.rds")
+
+# --- clean ---
+occ_gl_clean <- occ_gl |>
+  as.data.frame() |>
+  cc_val(lon = "decimalLongitude", lat = "decimalLatitude") |>
+  cc_equ(lon = "decimalLongitude", lat = "decimalLatitude") |>
+  cc_zero(lon = "decimalLongitude", lat = "decimalLatitude") |>
+  cc_cen(lon = "decimalLongitude", lat = "decimalLatitude", buffer = 1000) |>
+  cc_inst(lon = "decimalLongitude", lat = "decimalLatitude")
+
+# --- assign cells, join species-level B, summarise per cell ---
+pts_gl <- occ_gl_clean |>
+  st_as_sf(coords = c("decimalLongitude", "decimalLatitude"), crs = 4326) |>
+  st_transform("EPSG:6931") |> vect()
+
+gl_cells <- occ_gl_clean |>
+  dplyr::mutate(cell  = cells(biome_r, pts_gl)[, "cell"],
+                biome = terra::extract(biome_r, pts_gl)[[2]]) |>
+  dplyr::filter(!is.na(biome)) |>
+  dplyr::distinct(species, cell) |>
+  dplyr::inner_join(idx, by = "species") |>
+  dplyr::summarise(mean_B = mean(B_std), n_sp = dplyr::n(), .by = cell)
+nrow(gl_cells)   # expect 141
+
+# --- raster fill + plot (one chunk so it can't go stale) ---
+
+gl <- rnaturalearth::ne_countries(country = "Greenland", scale = 50) |>
+  st_transform("EPSG:6931")
+crs_gl <- "+proj=laea +lat_0=90 +lon_0=-40 +datum=WGS84 +units=m"
+
+b_map <- rast(biome_r); values(b_map) <- NA
+b_map[gl_cells$cell] <- gl_cells$mean_B
+b_map_gl <- crop(b_map, vect(gl))     # crop only; no mask
+bb <- st_bbox(gl_rot)   # bbox in the rotated crs — must come from gl_rot, not gl
+
+ggplot() +
+  geom_sf(data = gl_rot, fill = "grey90", color = NA) +
+  geom_spatraster(data = b_map_rot) +
+  scale_fill_viridis_c(name = "Mean B_std", na.value = NA) +
+  coord_sf(crs = crs_gl,
+           xlim = c(bb["xmin"], bb["xmax"]),
+           ylim = c(bb["ymin"], bb["ymax"]),
+           expand = FALSE) +
+  theme_minimal()
+
   
