@@ -63,6 +63,16 @@ occ_download_wait(d)
 occ <- occ_download_get(d) |> occ_download_import()
 saveRDS(occ, "data/occ_raw.rds")
 
+z <- occ_download_get(d, overwrite = TRUE)   # fresh download of the zip
+
+occ <- data.table::fread(
+  cmd = "unzip -p 0009781-260921141020460.zip",
+  select = c("species", "decimalLongitude", "decimalLatitude",
+             "coordinateUncertaintyInMeters", "countryCode",
+             "basisOfRecord", "year", "issue"),
+  quote = ""
+)
+
 # 3. Clean
 occ_clean <- occ |>
   as.data.frame() |>
@@ -75,6 +85,10 @@ occ_clean <- occ |>
 saveRDS(occ_clean, "data/occ_clean.rds")
 
 occ_clean <- readRDS("data/occ_clean.rds")
+
+
+dplyr::n_distinct(occ$species)     # should now be ~460-480, not 74
+saveRDS(occ, "data/occ_raw_full.rds")
 
 # chekcing the lenght of the species lists ###
 
