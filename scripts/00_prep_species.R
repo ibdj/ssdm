@@ -205,6 +205,11 @@ species_frequency <- species_long |>
   dplyr::count(taxon, name = "n_plots") |>
   dplyr::arrange(dplyr::desc(n_plots))
 
+#### modelable species #########################################################
+modelable_species <- species_frequency |>
+  filter(n_plots >= 10) |>
+  pull(taxon)
+
 #### saving all outputs#########################################################
 saveRDS(plots_sf, "data/plots_sf.rds")
 saveRDS(species_frequency, "data/species_frequency.rds")
