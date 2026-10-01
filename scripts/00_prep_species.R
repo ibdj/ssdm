@@ -213,6 +213,7 @@ modelable_species <- species_frequency |>
 #### saving all outputs#########################################################
 saveRDS(plots_sf, "data/plots_sf.rds")
 saveRDS(species_frequency, "data/species_frequency.rds")
+saveRDS(modelable_species, "data/modelable_species.rds")
 saveRDS(species_long, "data/species_long.rds")
 saveRDS(species_matrix_cover, "data/species_matrix_cover.rds")
 saveRDS(species_matrix_pa, "data/species_matrix_pa.rds")
