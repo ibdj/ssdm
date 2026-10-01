@@ -47,40 +47,21 @@ occ_download_wait(d_modelable)
 occ_modelable <- occ_download_get(d_modelable) |> occ_download_import()
 saveRDS(occ_modelable, "data/occ_raw_modelable.rds")
 
-z <- occ_download_get(d, overwrite = TRUE)   # fresh download of the zip
-
-occ <- data.table::fread(
-  cmd = "unzip -p 0009781-260921141020460.zip",
-  select = c("species", "decimalLongitude", "decimalLatitude",
-             "coordinateUncertaintyInMeters", "countryCode",
-             "basisOfRecord", "year", "issue"),
-  quote = ""
-)
-
-dplyr::n_distinct(occ$species)     # should now be ~460-480, not 74
-saveRDS(occ, "data/occ_raw_full.rds")sa
-
-# 3. Clean
-occ_clean <- occ |>
+# --- 3. Clean ---
+occ_clean_modelable <- occ_modelable |>
   as.data.frame() |>
   cc_val(lon = "decimalLongitude", lat = "decimalLatitude") |>
   cc_equ(lon = "decimalLongitude", lat = "decimalLatitude") |>
   cc_zero(lon = "decimalLongitude", lat = "decimalLatitude") |>
   cc_cen(lon = "decimalLongitude", lat = "decimalLatitude", buffer = 1000) |>
   cc_inst(lon = "decimalLongitude", lat = "decimalLatitude")
+saveRDS(occ_clean_modelable, "data/occ_clean_modelable.rds")
+# occ_clean_modelable <- readRDS("data/occ_clean_modelable.rds")
 
-saveRDS(occ_clean, "data/occ_clean.rds")
-
-occ_clean <- readRDS("data/occ_clean.rds")
-
-
-# chekcing the lenght of the species lists ###
-
-length(keys)                              # ~500 expected
-dplyr::n_distinct(occ$species)            # the download
-dplyr::n_distinct(occ_clean$species)
-dplyr::n_distinct(occ_cells$species)
-dplyr::n_distinct(idx$species)
+# --- checks ---
+length(keys_modelable)                                 # 17 expected
+dplyr::n_distinct(occ_modelable$species)               # ≤17 (synonyms may merge!)
+dplyr::n_distinct(occ_clean_modelable$species)
 
 # 4. Biome raster (once): WWF ecoregions -> boreal (6) / tundra (11) on EPSG:6931 grid
 
@@ -114,26 +95,22 @@ biome_r <- rast("data/biome_r.tif")     # if the tif exists
 biome_freq <- terra::freq(biome_r)
 n_cells_boreal_total <- biome_freq$count[biome_freq$value == 6]
 n_cells_tundra_total <- biome_freq$count[biome_freq$value == 11]
-
-biome_freq <- terra::freq(biome_r)
-n_cells_boreal_total <- biome_freq$count[biome_freq$value == 6]
-n_cells_tundra_total <- biome_freq$count[biome_freq$value == 11]
 n_cells_boreal_total / n_cells_tundra_total   # sanity check ratio
 
 # 4b. Assign each occurrence to a cell + biome  -> occ_cells
-pts <- occ |>
+pts <- occ_clean_modelable |>
   st_as_sf(coords = c("decimalLongitude", "decimalLatitude"), crs = 4326) |>
   st_transform("EPSG:6931") |>
   vect()
 
-occ_cells <- occ |>
+occ_cells_modelable <- occ_clean_modelable |>
   mutate(cell  = cells(biome_r, pts)[, "cell"],
          biome = terra::extract(biome_r, pts)[, 2]) |>
   filter(!is.na(biome)) |>                # drops sea, temperate, everything else
   mutate(biome = if_else(biome == 6, "boreal", "tundra"))
 
 # 5. Index: occupied 50 km cells per species per biome
-idx <- occ_cells |>
+idx_modelable <- occ_cells_modelable |>
   dplyr::distinct(species, cell, biome) |>
   dplyr::summarise(n = dplyr::n(), .by = c(species, biome)) |>
   tidyr::pivot_wider(names_from = biome, values_from = n, values_fill = 0) |>
@@ -141,7 +118,7 @@ idx <- occ_cells |>
                 B_std = (boreal / n_cells_boreal_total) /
                   (boreal / n_cells_boreal_total + tundra / n_cells_tundra_total))
 
-idx |>
+idx_modelable |>
   tidyr::pivot_longer(c(B, B_std), names_to = "index", values_to = "value") |>
   ggplot(aes(value)) +
   geom_histogram(binwidth = 0.05, boundary = 0, fill = "grey30") +
@@ -151,10 +128,10 @@ idx |>
   labs(x = "Borealness", y = "Number of species") +
   theme_minimal()
 
-idx |> filter(B_std > 0.5)
-idx |> filter(B_std < 0.5)
+idx_modelable |> filter(B_std > 0.5)
+idx_modelable |> filter(B_std < 0.5)
 
-idx |>
+idx_modelable |>
   tidyr::pivot_longer(c(B, B_std), names_to = "index", values_to = "value") |>
   dplyr::summarise(
     n_boreal  = sum(value > 0.5),
@@ -164,74 +141,11 @@ idx |>
     .by = index
   )
 
-ggplot(idx, aes(B, B_std)) +
+ggplot(idx_modelable, aes(B, B_std)) +
   geom_abline(linetype = "dashed") +
   geom_point() +
   ggrepel::geom_text_repel(data = \(d) dplyr::filter(d, abs(B - B_std) > 0.1),
                            aes(label = species), size = 2.5) +
   theme_minimal()
 
-## ============================================================
-## GREENLAND MAP  (separate relaxed download; index `idx` stays
-## the strict circumpolar version — do not mix the two)
-## ============================================================
-
-# --- GL download (heavy, run once; no uncertainty filter) ---
-# d_gl <- occ_download(
-#   pred_in("taxonKey", keys),
-#   pred("country", "GL"),
-#   pred("hasCoordinate", TRUE),
-#   pred("hasGeospatialIssue", FALSE),
-#   pred_in("basisOfRecord", c("PRESERVED_SPECIMEN", "HUMAN_OBSERVATION")),
-#   format = "SIMPLE_CSV"
-# )
-# occ_download_wait(d_gl)
-# occ_gl <- occ_download_get(d_gl) |> occ_download_import()
-# saveRDS(occ_gl, "data/occ_raw_gl.rds")
-# writeLines(as.character(d_gl), "data/download_key_gl.txt")
-occ_gl <- readRDS("data/occ_raw_gl.rds")
-
-# --- clean ---
-occ_gl_clean <- occ_gl |>
-  as.data.frame() |>
-  cc_val(lon = "decimalLongitude", lat = "decimalLatitude") |>
-  cc_equ(lon = "decimalLongitude", lat = "decimalLatitude") |>
-  cc_zero(lon = "decimalLongitude", lat = "decimalLatitude") |>
-  cc_cen(lon = "decimalLongitude", lat = "decimalLatitude", buffer = 1000) |>
-  cc_inst(lon = "decimalLongitude", lat = "decimalLatitude")
-
-# --- assign cells, join species-level B, summarise per cell ---
-pts_gl <- occ_gl_clean |>
-  st_as_sf(coords = c("decimalLongitude", "decimalLatitude"), crs = 4326) |>
-  st_transform("EPSG:6931") |> vect()
-
-gl_cells <- occ_gl_clean |>
-  dplyr::mutate(cell  = cells(biome_r, pts_gl)[, "cell"],
-                biome = terra::extract(biome_r, pts_gl)[[2]]) |>
-  dplyr::filter(!is.na(biome)) |>
-  dplyr::distinct(species, cell) |>
-  dplyr::inner_join(idx, by = "species") |>
-  dplyr::summarise(mean_B = mean(B_std), n_sp = dplyr::n(), .by = cell)
-nrow(gl_cells)   # expect 141
-
-# --- raster fill + plot (one chunk so it can't go stale) ---
-
-gl <- rnaturalearth::ne_countries(country = "Greenland", scale = 50) |>
-  st_transform("EPSG:6931")
-crs_gl <- "+proj=laea +lat_0=90 +lon_0=-40 +datum=WGS84 +units=m"
-
-b_map <- rast(biome_r); values(b_map) <- NA
-b_map[gl_cells$cell] <- gl_cells$mean_B
-b_map_gl <- crop(b_map, vect(gl))     # crop only; no mask
-bb <- st_bbox(gl_rot)   # bbox in the rotated crs — must come from gl_rot, not gl
-
-ggplot() +
-  geom_sf(data = gl_rot, fill = "grey90", color = NA) +
-  geom_spatraster(data = b_map_rot) +
-  scale_fill_viridis_c(name = "Mean B_std", na.value = NA) +
-  coord_sf(crs = crs_gl,
-           xlim = c(bb["xmin"], bb["xmax"]),
-           ylim = c(bb["ymin"], bb["ymax"]),
-           expand = FALSE) +
-  theme_minimal()
 
