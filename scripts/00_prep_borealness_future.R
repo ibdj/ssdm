@@ -8,61 +8,44 @@ library(janitor)
 library(readxl)
 library(tidyterra)
 
-fog_maps <- read_excel("~/Library/CloudStorage/OneDrive-Aarhusuniversitet/MappingPlants/02 Modelling future changes/fog_maps.xlsx")
-
-Gronlands_flora_distribution <- read_excel("~/Desktop/Gronlands_flora_distribution.xlsx") |> 
-  clean_names()
-
-distributions <- Gronlands_flora_distribution |> 
-  select(taxon, n,n_wn,n_wm,n_ws,c_wn,c_wm,c_ws,s_wn,s_wm, s_ws, s, sen, sem, ses, n_en, n_em, n_es, cen, cem, ces)
-#nw, cw, sw, se, ne, ce,
-
-distributions_long <- distributions |> 
-  pivot_longer(cols = 2:21, names_to = "distrikt", values_to = "abundance") |> 
-  mutate(distrikt = as.factor(distrikt), abundance = as.factor(abundance)) |> 
-  filter(!is.na(abundance))
-
-summary(distributions_long)  
-
-distributions_long  |>  
-  count(abundance) |> 
-  print(n = Inf)
+modelable_species <- read_rds("data/modelable_species.rds")
 
 #my_species <- read_rds("data/species_frequency.rds") |> 
 #  select(taxon)
 
-my_species <- fog_maps |> 
-  mutate(scientificName = taxa) |> 
+my_species <- as_tibble(modelable_species) |> 
+  mutate(scientificName = value) |> 
   select(scientificName)
 
-matched <- purrr::map(my_species$scientificName, \(x) {
+matched_modelable <- purrr::map(my_species$scientificName, \(x) {
   r <- tryCatch(rgbif::name_backbone(name = x), error = \(e) NULL)
   if (is.null(r)) { Sys.sleep(5); r <- rgbif::name_backbone(name = x) }
   r
 }, .progress = TRUE) |>
   purrr::list_rbind()
 
-saveRDS(matched, "data/gbif_backbone_match.rds")
+saveRDS(matched_modelable, "data/gbif_backbone_match_modelable.rds")
 
 # 1. Match your names to the GBIF backbone
-keys <- matched |>
+keys_modelable <- matched_modelable |>
   filter(matchType %in% c("EXACT", "FUZZY")) |>   # inspect fuzzy ones manually
   pull(usageKey)
 
-saveRDS(keys, "data/keys.rds")
+saveRDS(keys_modelable, "data/keys_modelable.rds")
 
 # 2. One bulk download (needs GBIF credentials in .Renviron)
-d <- occ_download(
-  pred_in("taxonKey", keys),
+d_modelable <- occ_download(
+  pred_in("taxonKey", keys_modelable),
   pred("hasCoordinate", TRUE),
   pred("hasGeospatialIssue", FALSE),
   pred_lt("coordinateUncertaintyInMeters", 10000),
   pred_in("basisOfRecord", c("PRESERVED_SPECIMEN", "HUMAN_OBSERVATION")),
   format = "SIMPLE_CSV"
 )
-occ_download_wait(d)
-occ <- occ_download_get(d) |> occ_download_import()
-saveRDS(occ, "data/occ_raw.rds")
+
+occ_download_wait(d_modelable)
+occ_modelable <- occ_download_get(d_modelable) |> occ_download_import()
+saveRDS(occ_modelable, "data/occ_raw_modelable.rds")
 
 z <- occ_download_get(d, overwrite = TRUE)   # fresh download of the zip
 
