@@ -33,9 +33,7 @@ pred_names <- names(pred_stack)
 species_frequency <- read_rds("data/species_frequency.rds")
 
 # Get modelable species
-modelable_species <- species_frequency |>
-  filter(n_plots >= 10) |>
-  pull(taxon)
+modelable_species <- read_rds("data/modelable_species.rds")
 
 species_matrix_pa <- read_rds("data/species_matrix_pa.rds")
 names(species_matrix_pa)
