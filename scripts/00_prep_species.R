@@ -160,6 +160,7 @@ species_long <- survey_0_ren |>
     taxon = str_remove(taxon, "_+$"),
     taxon = case_when(
       taxon == "Scirpis caespitosus" ~ "Scirpus caespitosus",
+      taxon == "Polygonum viviparum" ~ "Bistorta vivipara",
       TRUE ~ taxon
     )
   )
@@ -177,7 +178,7 @@ taxon_check <- species_long |>
 #### species matrix ############################################################
 
 species_only_long <- species_long |> 
-  dplyr::select(plot_name, taxon, cover) |> 
+  dplyr::select(plot, taxon, cover) |> 
   distinct()
 
 species_matrix <- species_long |>
