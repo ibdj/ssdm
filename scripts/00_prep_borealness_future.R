@@ -131,6 +131,8 @@ idx_modelable |>
 idx_modelable |> filter(B_std > 0.5)
 idx_modelable |> filter(B_std < 0.5)
 
+saveRDS(idx_modelable,"data/idx_modelable.rds")
+
 idx_modelable |>
   tidyr::pivot_longer(c(B, B_std), names_to = "index", values_to = "value") |>
   dplyr::summarise(
@@ -141,6 +143,7 @@ idx_modelable |>
     .by = index
   )
 
+borealness |> filter(str_detect(species, "Calamagrostis"))
 ggplot(idx_modelable, aes(B, B_std)) +
   geom_abline(linetype = "dashed") +
   geom_point() +
@@ -148,4 +151,12 @@ ggplot(idx_modelable, aes(B, B_std)) +
                            aes(label = species), size = 2.5) +
   theme_minimal()
 
+name_lookup <- tibble(
+  taxon = c("Juncus trifidus", "Lycopodium annotinum", 
+            "Deschampsia flexuosa", "Ledum groenlandicum",
+            "Loiseleuria procumbens"),
+  species = c("Oreojuncus trifidus", "Spinulum annotinum",
+              "Avenella flexuosa", "Rhododendron groenlandicum",
+              "Kalmia procumbens")
+)
 
