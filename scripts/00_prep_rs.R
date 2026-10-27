@@ -282,3 +282,6 @@ summary(rs)          # 130 rows, no NAs in the six predictors
 
 saveRDS(rs, "data/rs.rds")
 writeRaster(pred_stack, "data/pred_stack.tif", overwrite = TRUE)
+
+rs <- readRDS("data/rs.rds")
+names(rs)
