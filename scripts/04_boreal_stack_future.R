@@ -48,3 +48,23 @@ plot(trim(cwm_change), col = hcl.colors(50, "Blue-Red 2"),
 
 global(cwm_change, \(x) quantile(x, c(0.05, 0.5, 0.95), na.rm = TRUE))
 global(cwm_change > 0, "mean", na.rm = TRUE)   # share of pixels becoming more boreal
+
+# load NDVI as a weight, check alignment, and compute NDVI-weighted means
+
+ndvi <- terra::rast("data/rast_ndvi_proc.tif")
+terra::compareGeom(ndvi, cwm)   # TRUE expected
+
+w <- terra::clamp(ndvi, lower = 0, values = TRUE) |>
+  terra::mask(cwm[[1]])
+
+wmean <- \(x) terra::global(x * w, "sum", na.rm = TRUE)[[1]] /
+  terra::global(w, "sum", na.rm = TRUE)[[1]]
+
+tibble::tibble(
+  scenario  = scenarios,
+  cwm_unw   = terra::global(cwm, "mean", na.rm = TRUE)[[1]],
+  cwm_ndvi  = purrr::map_dbl(scenarios, \(s) wmean(cwm[[s]]))
+) |>
+    dplyr::mutate(change_unw  = cwm_unw  - cwm_unw[1],
+                  change_ndvi = cwm_ndvi - cwm_ndvi[1])
+
