@@ -28,9 +28,12 @@ saveRDS(matched_modelable, "data/gbif_backbone_match_modelable.rds")
 
 # 1. Match your names to the GBIF backbone
 keys_modelable <- matched_modelable |>
-  filter(matchType %in% c("EXACT", "FUZZY")) |>   # inspect fuzzy ones manually
-  pull(usageKey)
+  dplyr::filter(matchType %in% c("EXACT", "FUZZY", "VARIANT")) |>
+  dplyr::mutate(key = dplyr::coalesce(acceptedUsageKey, usageKey)) |>
+  dplyr::pull(key) |>
+  unique()
 
+length(keys_modelable)   # 17 expected
 saveRDS(keys_modelable, "data/keys_modelable.rds")
 
 # 2. One bulk download (needs GBIF credentials in .Renviron)
@@ -133,6 +136,8 @@ idx_modelable |> filter(B_std < 0.5)
 
 saveRDS(idx_modelable,"data/idx_modelable.rds")
 
+idx_modelable <- read_rds("data/idx_modelable.rds")
+
 idx_modelable |>
   tidyr::pivot_longer(c(B, B_std), names_to = "index", values_to = "value") |>
   dplyr::summarise(
@@ -151,12 +156,15 @@ ggplot(idx_modelable, aes(B, B_std)) +
                            aes(label = species), size = 2.5) +
   theme_minimal()
 
-name_lookup <- tibble(
-  taxon = c("Juncus trifidus", "Lycopodium annotinum", 
-            "Deschampsia flexuosa", "Ledum groenlandicum",
-            "Loiseleuria procumbens"),
-  species = c("Oreojuncus trifidus", "Spinulum annotinum",
-              "Avenella flexuosa", "Rhododendron groenlandicum",
-              "Kalmia procumbens")
+name_lookup <- tibble::tibble(
+  taxon   = c("Juncus trifidus", "Lycopodium annotinum", "Deschampsia flexuosa",
+              "Ledum groenlandicum", "Loiseleuria procumbens", "Calamagrostis langsdorfii"),
+  species = c("Oreojuncus trifidus", "Spinulum annotinum", "Avenella flexuosa",
+              "Rhododendron groenlandicum", "Kalmia procumbens", "Calamagrostis purpurea")
 )
 
+idx_modelable <- idx_modelable |>
+  dplyr::left_join(name_lookup, by = "species") |>
+  dplyr::mutate(taxon = dplyr::coalesce(taxon, species))
+
+setdiff(modelable_species, idx_modelable$taxon)   # character(0) expected
