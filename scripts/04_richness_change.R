@@ -4,7 +4,7 @@ library(tidyverse)
 # ---- load inputs ----
 modelable_species <- readRDS("data/modelable_species.rds")
 
-scenarios <- c("ssp126", "ssp245", "ssp370", "ssp585")
+scenarios <- c("current", "ssp126", "ssp245", "ssp370", "ssp585")
 
 borealness <- readRDS("data/idx_modelable.rds") |>
   dplyr::select(species, B_std)
@@ -16,44 +16,37 @@ names(species_change)
 sum(is.na(species_change$B_std))   # 0 expected
 
 # Add label to outliers
-ggplot(species_change, aes(x = B_std, y = mean_change, colour = scenario)) +
-  geom_point() +
-  ggrepel::geom_text_repel(
-    data = species_change |> filter(abs(mean_change) > 0.05),
-    aes(label = taxon), size = 2.5, colour = "black"
-  ) +
-  geom_smooth(method = "lm", se = TRUE) +
+ggplot(species_change, aes(B_std, delta_p)) +
   geom_hline(yintercept = 0, linetype = "dashed") +
   geom_vline(xintercept = 0.5, linetype = "dashed") +
+  geom_smooth(method = "lm", se = TRUE, colour = "grey40") +
+  geom_point() +
+  ggrepel::geom_text_repel(
+    data = dplyr::filter(species_change, abs(delta_p) > 0.05),
+    aes(label = taxon), size = 2.5, fontface = "italic"
+  ) +
   facet_wrap(~scenario) +
-  labs(x = "Borealness (B_std)", 
-       y = "Mean change in occurrence probability",
-       title = "Borealness vs response to warming") +
+  labs(x = "Borealness (B_std)",
+       y = "Change in mean occurrence probability (NDVI-weighted)") +
   theme_minimal()
 
-# Correlation per scenario
-species_change |>
-  group_by(scenario) |>
-  summarise(r = cor(B_std, mean_change, use = "complete.obs"),
-            p = cor.test(B_std, mean_change)$p.value)
+# richness
 
-species_change |>
-  group_by(taxon, B_std) |>
-  summarise(mean_change_ssp585 = mean_change[scenario == "ssp585"]) |>
-  arrange(desc(mean_change_ssp585))
+richness <- purrr::map(scenarios, \(s) {
+  f <- file.path("data", paste0("sdm_", gsub(" ", "_", modelable_species),
+                                if (s == "current") "" else paste0("_", s), ".tif"))
+  sum(terra::rast(f))
+}) |> terra::rast()
+names(richness) <- scenarios
 
-borealness |> pull(species) |> sort()
-modelable_species |> sort()
+rich_change <- richness[[-1]] - richness[["current"]]
 
-# See what's in borealness that's close to your missing species
-borealness |> 
-  filter(str_detect(species, "Juncus|Loiseleuria|Ledum|Lycopodium|Deschampsia|Calamagrostis"))
+terra::global(richness[["current"]], c("min", "max", "mean"), na.rm = TRUE)
 
-name_lookup <- tibble(
-  taxon = c("Juncus trifidus", "Lycopodium annotinum", 
-            "Deschampsia flexuosa", "Ledum groenlandicum",
-            "Loiseleuria procumbens"),
-  species = c("Oreojuncus trifidus", "Spinulum annotinum",
-              "Avenella flexuosa", "Rhododendron groenlandicum",
-              "Kalmia procumbens")
+tibble::tibble(
+  scenario     = scenarios[-1],
+  mean_change  = terra::global(rich_change, "mean", na.rm = TRUE)[[1]],
+  sd_change    = terra::global(rich_change, "sd",   na.rm = TRUE)[[1]],
+  pct_increase = 100 * terra::global(rich_change > 0, "mean", na.rm = TRUE)[[1]],
+  pct_decrease = 100 * terra::global(rich_change < 0, "mean", na.rm = TRUE)[[1]]
 )
