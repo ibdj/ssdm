@@ -10,13 +10,10 @@ borealness <- readRDS("data/idx_modelable.rds") |>
   dplyr::select(species, B_std)
 
 # ---- mean change per species per scenario ----
-species_change <- species_change |>
-  left_join(name_lookup, by = "taxon") |>
-  mutate(species_match = coalesce(species, taxon)) |>
-  left_join(idx_modelable |> dplyr::select(species, B_std_new = B_std),
-            by = c("species_match" = "species")) |>
-  mutate(B_std = coalesce(B_std, B_std_new)) |>
-  dplyr::select(-species, -species_match, -B_std_new)
+species_change <- readRDS("data/boreal_sp_change_future.rds")
+
+names(species_change)
+sum(is.na(species_change$B_std))   # 0 expected
 
 # Add label to outliers
 ggplot(species_change, aes(x = B_std, y = mean_change, colour = scenario)) +
