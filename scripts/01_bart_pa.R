@@ -15,9 +15,6 @@ library(sf)
 
 #### TO DO #####################################################################
 
-# [ ] Both PA and abundance
-# [x] include hli instead of any of the aspect measures
-# [x] include mdwi instead of twi
 
 #### setup #####################################################################
 
