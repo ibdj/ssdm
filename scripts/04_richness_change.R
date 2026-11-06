@@ -50,3 +50,20 @@ tibble::tibble(
   pct_increase = 100 * terra::global(rich_change > 0, "mean", na.rm = TRUE)[[1]],
   pct_decrease = 100 * terra::global(rich_change < 0, "mean", na.rm = TRUE)[[1]]
 )
+
+# credibility of the model 
+
+pred_stack        <- terra::rast("data/pred_stack.tif")
+modelable_species <- readRDS("data/modelable_species.rds")
+deltas <- c(ssp126 = 0.9428791, ssp245 = 1.9663557,
+            ssp370 = 2.8462466, ssp585 = 3.8888474)
+
+set.seed(42)
+pix <- terra::spatSample(pred_stack, size = 10000, method = "random",
+                         na.rm = TRUE, as.df = TRUE)
+
+newdata <- c(list(current = pix),
+             purrr::map(deltas, \(d) dplyr::mutate(pix, summer_t_int = summer_t_int + d)))
+
+nrow(pix)                      # 10000 expected
+purrr::map_dbl(newdata, \(x) mean(x$summer_t_int))
