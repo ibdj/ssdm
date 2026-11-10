@@ -222,11 +222,14 @@ ggplot(learn_curves, aes(n_train, mean_auc, colour = species)) +
 
 #### diagnostics ###############################################################
 # Load the fitted models from the parallel loop (same models as the rasters)
-bart_models <- setNames(
-  lapply(modelable_species,
-         \(sp) readRDS(paste0("data/bart_pa_", gsub(" ", "_", sp), ".rds"))),
-  modelable_species
-)
+bart_models <- setNames(lapply(modelable_species, function(sp) {
+  train_data <- cbind(x_train, y = pa_matrix[[sp]]) |> as.data.frame()
+  dbarts::bart2(y ~ ., data = train_data, keepTrees = TRUE,
+                seed = which(modelable_species == sp))
+}), modelable_species)
+
+saveRDS(bart_models, "data/bart_models.rds")
+length(bart_models[["Juncus trifidus"]]$fit$state)   # should be 4
 
 # Training AUC
 auc_results <- map_dfr(modelable_species, function(sp) {
@@ -246,10 +249,55 @@ auc_results <- map_dfr(modelable_species, function(sp) {
 }) |>
   arrange(desc(auc))
 
-# In PA script, after fitting bart_models list:
+
+invisible(model$fit$state)
 saveRDS(model, paste0("data/bart_pa_", gsub(" ", "_", sp), ".rds"))
 
-#### explanatory ###############################################################
+
+## per-draw predictions
+
+sp <- "Juncus trifidus"   # adjust to your naming
+model <- bart_models[[sp]]
+
+pred_env <- as.data.frame(na.omit(terra::values(pred_stack)))
+
+draws_cur <- dbarts:::predict.bart(model, newdata = pred_env)
+dim(draws_cur)   # should be n_draws x n_cells (e.g. 2000 x ~cells)
+
+# per draw mean one sceneario at a time: 
+
+delta <- deltas[["ssp585"]]   # adjust to how your deltas are stored
+
+pred_ssp <- pred_env
+pred_ssp$summer_t_int <- pred_ssp$summer_t_int + delta
+
+draws_ssp <- dbarts:::predict.bart(model, newdata = pred_ssp)
+
+change_draws <- rowMeans(draws_ssp) - rowMeans(draws_cur)   # mean change per draw
+mean(change_draws)
+quantile(change_draws, c(0.025, 0.975))
+
+# table of all credible intervals for alle species
+
+cred_table <- map_dfr(modelable_species, function(sp) {
+  model <- bart_models[[sp]]
+  draws_cur <- dbarts:::predict.bart(model, newdata = pred_env)
+  cur <- rowMeans(draws_cur)
+  
+  map_dfr(names(deltas), function(scen) {
+    pred_ssp <- pred_env
+    pred_ssp$summer_t_int <- pred_ssp$summer_t_int + deltas[[scen]]
+    change <- rowMeans(dbarts:::predict.bart(model, newdata = pred_ssp)) - cur
+    
+    tibble(species = sp, scenario = scen,
+           mean_change = mean(change),
+           lower95 = quantile(change, 0.025),
+           upper95 = quantile(change, 0.975),
+           p_increase = mean(change > 0))
+  })
+})
+print(cred_table, n = Inf)
+ #### explanatory ###############################################################
 
 #### variable importance #######################################################
 
