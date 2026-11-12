@@ -163,6 +163,8 @@ name_lookup <- tibble::tibble(
               "Rhododendron groenlandicum", "Kalmia procumbens", "Calamagrostis purpurea")
 )
 
+
+names(idx_modelable)
 idx_modelable <- idx_modelable |>
   dplyr::left_join(name_lookup, by = "species") |>
   dplyr::mutate(taxon = dplyr::coalesce(taxon, species))
