@@ -425,3 +425,18 @@ ggplot(x_train_long, aes(x = value)) +
        title = "Distribution of plots across environmental predictors") +
   theme_minimal()
 
+
+#plotting the table
+
+cred_table <- cred_table |>
+  mutate(species = fct_reorder(species, mean_change, .fun = max, .desc = TRUE))
+
+ggplot(cred_table, aes(x = species, y = mean_change,
+                       colour = scenario, shape = scenario)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_pointrange(aes(ymin = lower95, ymax = upper95),
+                  position = position_dodge(width = 0.7), size = 0.3) +
+  labs(x = NULL, y = "Change in mean occurrence probability",
+       colour = "Scenario", shape = "Scenario") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "italic"))
