@@ -67,3 +67,35 @@ newdata <- c(list(current = pix),
 
 nrow(pix)                      # 10000 expected
 purrr::map_dbl(newdata, \(x) mean(x$summer_t_int))
+
+#step 2 credibility
+draws <- purrr::map_dfr(modelable_species, \(sp) {
+  m <- readRDS(paste0("data/bart_pa_", gsub(" ", "_", sp), ".rds"))
+  purrr::map_dfr(names(newdata), \(s) {
+    p <- dbarts:::predict.bart(m, newdata = newdata[[s]])   # draws x pixels
+    tibble::tibble(taxon = sp, scenario = s,
+                   draw = seq_len(nrow(p)), p_mean = rowMeans(p))
+  })
+}, .progress = TRUE)
+
+saveRDS(draws, "data/richness_draws_future.rds")
+
+dplyr::count(draws, taxon, scenario) |> dplyr::distinct(n)   # one value expected
+
+# step 3
+
+rich_draws <- draws |>
+  dplyr::summarise(richness = sum(p_mean), .by = c(scenario, draw)) |>
+  tidyr::pivot_wider(names_from = scenario, values_from = richness) |>
+  tidyr::pivot_longer(dplyr::starts_with("ssp"), names_to = "scenario", values_to = "future") |>
+  dplyr::mutate(change = future - current)
+
+rich_ci <- rich_draws |>
+  dplyr::summarise(mean   = mean(change),
+                   lower  = quantile(change, 0.025),
+                   upper  = quantile(change, 0.975),
+                   p_gain = mean(change > 0),
+                   .by = scenario)
+
+saveRDS(rich_ci, "data/richness_ci_future.rds")
+rich_ci
