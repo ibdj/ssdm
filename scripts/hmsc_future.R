@@ -23,105 +23,69 @@ library(viridis)
 # Load data from previous script outputs
 # ============================================================
 
-# Plot data
-abiotic_plot    <- readRDS("data/abiotic_plot.rds")
-species_matrix  <- readRDS("data/species_matrix.rds")
-species_long    <- readRDS("data/species_long.rds")
+rs                <- readRDS("data/rs.rds")
+pa_matrix         <- readRDS("data/species_matrix_pa.rds")
+modelable_species <- readRDS("data/modelable_species.rds")
 
-# Rasters
-dem_rast        <- rast("data/dem_crop.tif")
-twi_rast        <- rast("data/twi_calculated.tif")
-ndvi_rast       <- rast("data/ndvi_crop.tif")
-slope_rast      <- rast("data/slope_crop.tif")
-aspect_rast     <- rast("data/aspect_crop.tif")
-temp_rast       <- rast("data/temp_predicted_rast.tif")
+names(rs)
+class(rs)
+dim(pa_matrix)
+head(rownames(pa_matrix)); head(rs$plot)
+setdiff(modelable_species, colnames(pa_matrix))   # character(0) expected
 
 # ============================================================
-# Prepare HMSC input data
+# Prepare data
 # ============================================================
+plots <- intersect(rownames(pa_matrix), rs$plot)
+setdiff(rownames(pa_matrix), rs$plot)   # plots dropped from pa_matrix
+setdiff(rs$plot, rownames(pa_matrix))   # plots dropped from rs
 
-# Y matrix - presence/absence for modelable species
-modelable_species <- c(
-  "Coptis trifolia", "Huperzia selago", "Loiseleuria procumbens",
-  "Salix arctophila", "Calamagrostis langsdorfii", "Juncus trifidus",
-  "Ledum groenlandicum", "Polygonum viviparum", "Betula nana",
-  "Lycopodium annotinum", "Salix herbacea", "Vaccinium uliginosum",
-  "Salix glauca", "Deschampsia flexuosa", "Carex bigelowii",
-  "Empetrum nigrum"
-)
+rs_al <- rs[match(plots, rs$plot), ]
 
-Y <- species_matrix |>
-  dplyr::select(all_of(modelable_species)) |>
-  mutate(across(everything(), ~ as.integer(. > 0))) |>
-  as.matrix()
+Y <- pa_matrix[plots, modelable_species] |> as.matrix()
 
-rownames(Y) <- species_matrix$plot_name
-
-# X matrix - environmental predictors (without ndvi)
-X <- abiotic_plot |>
-  dplyr::select(elevation, slope, aspect_sin, aspect_cos,
-                twi, temp_predicted) |>
+X <- rs_al |>
+  sf::st_drop_geometry() |>
+  dplyr::select(elevation, slope, ndwi, snowfree, hli, summer_t_int) |>
   as.data.frame()
+rownames(X) <- plots
 
-rownames(X) <- abiotic_plot$plot_name
+coords <- sf::st_coordinates(rs_al) |> as.data.frame()
+rownames(coords) <- plots
 
-# Spatial coordinates for random effect
-coords <- abiotic_plot |>
-  st_as_sf(coords = c("x", "y"), crs = 4326) |>
-  st_transform(32622) |>
-  st_coordinates() |>
-  as.data.frame()
-
-rownames(coords) <- abiotic_plot$plot_name
-
-# Check dimensions align
-dim(Y)
-dim(X)
-dim(coords)
-
-
-# Check NAs in Y
-colSums(is.na(Y))
-rowSums(is.na(Y))
-
-# Check NAs in X
-colSums(is.na(X))
-rowSums(is.na(X))
-
-# Check NAs in coords
-colSums(is.na(coords))
-
+dim(Y); dim(X); dim(coords)
+sum(is.na(Y)); colSums(is.na(X))
+sf::st_crs(rs)$epsg   # 32622 expected
 # ============================================================
 # Set up HMSC model
 # ============================================================
 
-# Spatial random effect
-studyDesign <- data.frame(plot = as.factor(rownames(Y)))
-rL.spatial <- HmscRandomLevel(sData = coords)
+range(Y)   # 0 1 expected
 
-# Formula for fixed effects
-XFormula <- ~ elevation + slope + aspect_sin + aspect_cos + 
-  twi + temp_predicted
+studyDesign <- data.frame(plot = factor(plots))
+rL_spatial  <- HmscRandomLevel(sData = coords)
 
-# Define model
 m <- Hmsc(
-  Y = Y,
-  XData = X,
-  XFormula = XFormula,
+  Y           = Y,
+  XData       = X,
+  XFormula    = ~ elevation + slope + ndwi + snowfree + hli + summer_t_int,
   studyDesign = studyDesign,
-  ranLevels = list(plot = rL.spatial),
-  distr = "probit"
+  ranLevels   = list(plot = rL_spatial),
+  distr       = "probit"
 )
 
+# test
+#set.seed(42)
+#m_test <- sampleMcmc(m, thin = 1, samples = 100, transient = 50,nChains = 2, nParallel = 2, verbose = 50)
 # ============================================================
 # MCMC sampling
 # ============================================================
 
 # Start with thin chain for testing
 nChains   <- 4
-thin      <- 10
+thin      <- 100
 samples   <- 1000
-transient <- 500
+transient <- 50000
 
 set.seed(42)
 
@@ -131,24 +95,14 @@ m <- sampleMcmc(m,
                 transient = transient,
                 nChains   = nChains,
                 nParallel = nChains,   # <-- to run in parallel
-                verbose   = 500
+                verbose   = 5000
 )
 
 # Save model immediately after sampling
 saveRDS(m, "data/hmsc_model_pa.rds")
 
 summary(m)
-
-
 # ==============================================================================
-
-# ==============================================================================
-# HMSC Model Visualizations
-# Requires: Hmsc, ggplot2, corrplot, tidyr, dplyr, viridis
-# ============================================================
-
-# ---- Load your saved model ----
-m <- readRDS("data/hmsc_model_pa.rds")
 
 # ==============================================================
 # 1. MCMC CONVERGENCE DIAGNOSTICS
@@ -160,8 +114,13 @@ mpost <- convertToCodaObject(m)
 
 # Potential Scale Reduction Factor (Gelman-Rubin)
 # Values < 1.1 indicate good convergence
-psrf_beta <- gelman.diag(mpost$Beta, multivariate = FALSE)$psrf
-psrf_gamma <- gelman.diag(mpost$Gamma, multivariate = FALSE)$psrf
+psrf_beta  <- coda::gelman.diag(mpost$Beta, multivariate = FALSE)$psrf[, 1]
+psrf_omega <- coda::gelman.diag(mpost$Omega[[1]], multivariate = FALSE)$psrf[, 1]
+ess_beta   <- coda::effectiveSize(mpost$Beta)
+
+summary(psrf_beta)    # max < 1.1 expected
+summary(psrf_omega)   # max < 1.1 expected
+summary(ess_beta)     # well above 400 expec
 
 cat("=== MCMC Convergence (Gelman-Rubin PSRF) ===\n")
 cat("Beta parameters - Mean PSRF:", round(mean(psrf_beta[,1]), 3), "\n")
