@@ -64,58 +64,26 @@ pred_env     <- pred_df[complete_idx, ]   # complete cases only, for prediction
 
 identical(pred_names, names(pred_stack))
 
-#### BART fitting and spatial projection - parallel ############################
+#### BART model fitting ########################################################
+# Sequential: models fitted in parallel workers lose their C++ tree state,
+# so they cannot be saved or used for prediction later. Fits take ~0.1 s each.
+# These are THE models — rasters, credible intervals and response curves
+# are all computed from this list.
 
-cl <- makeCluster(4)
-registerDoParallel(cl)
-clusterSetRNGStream(cl, 42)
-clusterExport(cl, c("pa_matrix", "x_train", "pred_df_r",
-                    "complete_idx", "pred_rast_stack_r", "modelable_species"))
+bart_models <- setNames(lapply(modelable_species, function(sp) {
+  train_data <- cbind(x_train, y = pa_matrix[[sp]]) |> as.data.frame()
+  model <- dbarts::bart2(y ~ ., data = train_data, keepTrees = TRUE,
+                         seed = which(modelable_species == sp))
+  invisible(model$fit$state)   # force C++ tree state into the R object
+  model
+}), modelable_species)
 
-foreach(sp = modelable_species,
-        .packages = c("dbarts", "raster"),
-        .errorhandling = "pass") %dopar% {
-          
-          train_data <- cbind(x_train, y = pa_matrix[[sp]]) |> as.data.frame()
-          
-          model <- dbarts::bart2(
-            y ~ .,
-            data = train_data,
-            keepTrees = TRUE,
-            seed = which(modelable_species == sp)
-          )
-          
-          invisible(model$fit$state)   # forces C++ tree state into the R object
-          saveRDS(model, paste0("data/bart_pa_", gsub(" ", "_", sp), ".rds"))
-          
-          # Predict only on complete cases
-          pred_vals <- dbarts:::predict.bart(model, 
-                                             newdata = pred_df_r[complete_idx, ])
-          prob_vals <- colMeans(pred_vals)
-          
-          # Insert predictions into full vector with NAs for masked pixels
-          prob_full <- rep(NA_real_, nrow(pred_df_r))
-          prob_full[complete_idx] <- prob_vals
-          
-          sp_rast_r <- raster::raster(pred_rast_stack_r[[1]])
-          raster::values(sp_rast_r) <- prob_full
-          
-          filename <- paste0("data/sdm_", gsub(" ", "_", sp), ".tif")
-          raster::writeRaster(sp_rast_r, filename, overwrite = TRUE)
-          
-          filename
-        }
+saveRDS(bart_models, "data/bart_models.rds")
+length(bart_models[["Juncus trifidus"]]$fit$state)   # should be 4
 
-stopCluster(cl)
-
-# Load saved rasters back into list
-species_rasts <- lapply(modelable_species, function(sp) {
-  rast(paste0("data/sdm_", gsub(" ", "_", sp), ".tif"))
-})
-names(species_rasts) <- modelable_species
-
-# Verify they loaded correctly
-plot(trim(species_rasts[["Betula nana"]]))
+# In a fresh session, load instead of refitting:
+# bart_models <- readRDS("data/bart_models.rds")
+# length(bart_models[["Juncus trifidus"]]$fit$state)   # verify: should be 4
 
 ##### 5 fold validation ########################################################
 
