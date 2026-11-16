@@ -219,20 +219,12 @@ ggplot(learn_curves, aes(n_train, mean_auc, colour = species)) +
   theme_minimal()
 
 #### diagnostics ###############################################################
-# Load the fitted models from the parallel loop (same models as the rasters)
-bart_models <- setNames(lapply(modelable_species, function(sp) {
-  train_data <- cbind(x_train, y = pa_matrix[[sp]]) |> as.data.frame()
-  dbarts::bart2(y ~ ., data = train_data, keepTrees = TRUE,
-                seed = which(modelable_species == sp))
-}), modelable_species)
-
-saveRDS(bart_models, "data/bart_models.rds")
-length(bart_models[["Juncus trifidus"]]$fit$state)   # should be 4
+#### diagnostics ###############################################################
 
 # Training AUC
 auc_results <- map_dfr(modelable_species, function(sp) {
   predicted <- colMeans(
-    dbarts:::predict.bart(bart_models[[sp]], 
+    dbarts:::predict.bart(bart_models[[sp]],
                           newdata = as.data.frame(x_train))
   )
   observed <- pa_matrix[[sp]]
@@ -247,12 +239,7 @@ auc_results <- map_dfr(modelable_species, function(sp) {
 }) |>
   arrange(desc(auc))
 
-
-invisible(model$fit$state)
-saveRDS(model, paste0("data/bart_pa_", gsub(" ", "_", sp), ".rds"))
-
-
-## per-draw predictions
+### per-draw predictions ####
 
 sp <- "Juncus trifidus"   # adjust to your naming
 model <- bart_models[[sp]]
@@ -295,7 +282,7 @@ cred_table <- map_dfr(modelable_species, function(sp) {
   })
 })
 print(cred_table, n = Inf)
- #### explanatory ###############################################################
+#### explanatory ###############################################################
 
 #### variable importance #######################################################
 
