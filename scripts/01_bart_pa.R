@@ -25,6 +25,7 @@ names(pred_stack)
 
 pred_names <- names(pred_stack)
 
+
 #### prepare plot data #########################################################
 
 species_frequency <- read_rds("data/species_frequency.rds")
@@ -56,12 +57,10 @@ x_train <- pa_matrix |>
   dplyr::select(all_of(pred_names)) |>
   as.data.frame()
 
-# Convert to old raster format for embarcadero/dbarts
-pred_rast_stack_r <- raster::stack(pred_stack)
-
-# Dataframe for prediction — keep NAs, track complete cases
-pred_df_r    <- as.data.frame(pred_rast_stack_r, na.rm = FALSE)
-complete_idx <- complete.cases(pred_df_r)
+# Prediction dataframe from raster stack — keep NAs, track complete cases
+pred_df      <- as.data.frame(terra::values(pred_stack))
+complete_idx <- complete.cases(pred_df)
+pred_env     <- pred_df[complete_idx, ]   # complete cases only, for prediction
 
 identical(pred_names, names(pred_stack))
 
@@ -441,4 +440,23 @@ ggplot(cred_table, aes(x = species, y = mean_change,
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "italic"))
 
-## response curces
+## response curves
+pd_all <- map_dfr(modelable_species, function(sp) {
+  map_dfr(t_seq, function(t) {
+    x_pd <- x_train
+    x_pd$summer_t_int <- t
+    draws <- rowMeans(dbarts:::predict.bart(bart_models[[sp]], newdata = x_pd))
+    tibble(species = sp, summer_t_int = t,
+           mean = mean(draws),
+           lower = quantile(draws, 0.025),
+           upper = quantile(draws, 0.975))
+  })
+})
+
+ggplot(pd_all, aes(summer_t_int, mean)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  geom_line() +
+  facet_wrap(~ species, ncol = 4) +
+  labs(x = "Summer soil temperature (°C)", y = "Occurrence probability") +
+  theme_minimal() +
+  theme(strip.text = element_text(face = "italic"))
