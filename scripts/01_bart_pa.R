@@ -85,6 +85,32 @@ length(bart_models[["Juncus trifidus"]]$fit$state)   # should be 4
 # bart_models <- readRDS("data/bart_models.rds")
 # length(bart_models[["Juncus trifidus"]]$fit$state)   # verify: should be 4
 
+#### spatial projection ########################################################
+# Sequential, from the saved models. (bart_models cannot be exported to
+# parallel workers — the tree state does not survive the transfer.)
+
+species_rasts <- setNames(lapply(modelable_species, function(sp) {
+  
+  prob_vals <- colMeans(
+    dbarts:::predict.bart(bart_models[[sp]], newdata = pred_env)
+  )
+  
+  # Insert predictions into full vector with NAs for masked pixels
+  prob_full <- rep(NA_real_, nrow(pred_df))
+  prob_full[complete_idx] <- prob_vals
+  
+  sp_rast <- rast(pred_stack[[1]])
+  values(sp_rast) <- prob_full
+  
+  writeRaster(sp_rast,
+              paste0("data/sdm_", gsub(" ", "_", sp), ".tif"),
+              overwrite = TRUE)
+  sp_rast
+}), modelable_species)
+
+# Verify
+plot(trim(species_rasts[["Betula nana"]]))
+
 ##### 5 fold validation ########################################################
 
 cl <- makeCluster(4)
