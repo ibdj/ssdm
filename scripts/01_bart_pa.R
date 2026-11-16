@@ -238,3 +238,43 @@ auc_results <- map_dfr(modelable_species, function(sp) {
 }) |>
   arrange(desc(auc))
 
+#### credible intervals of SSP changes #########################################
+# deltas: CMIP6 JJA tas anomalies, created in 03_ssp_projection.R
+# -> add there: saveRDS(deltas, "data/deltas.rds")
+deltas <- readRDS("data/deltas.rds")
+
+# Table of mean change, 95% CI and P(increase) per species x scenario
+cred_table <- map_dfr(modelable_species, function(sp) {
+  model <- bart_models[[sp]]
+  draws_cur <- dbarts:::predict.bart(model, newdata = pred_env)
+  cur <- rowMeans(draws_cur)
+  
+  map_dfr(names(deltas), function(scen) {
+    pred_ssp <- pred_env
+    pred_ssp$summer_t_int <- pred_ssp$summer_t_int + deltas[[scen]]
+    change <- rowMeans(dbarts:::predict.bart(model, newdata = pred_ssp)) - cur
+    
+    tibble(species = sp, scenario = scen,
+           mean_change = mean(change),
+           lower95 = quantile(change, 0.025),
+           upper95 = quantile(change, 0.975),
+           p_increase = mean(change > 0))
+  })
+})
+print(cred_table, n = Inf)
+
+saveRDS(cred_table, "data/cred_table.rds")
+
+# Forest plot of changes
+cred_table <- cred_table |>
+  mutate(species = fct_reorder(species, mean_change, .fun = max, .desc = TRUE))
+
+ggplot(cred_table, aes(x = species, y = mean_change,
+                       colour = scenario, shape = scenario)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_pointrange(aes(ymin = lower95, ymax = upper95),
+                  position = position_dodge(width = 0.7), size = 0.3) +
+  labs(x = NULL, y = "Change in mean occurrence probability",
+       colour = "Scenario", shape = "Scenario") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "italic"))
