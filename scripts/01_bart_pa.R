@@ -387,3 +387,28 @@ ggplot(plot_data, aes(x = r2_drop_norm, y = species, fill = variable)) +
        title = "Explained variance partitioned by predictor") +
   theme_minimal() +
   theme(axis.text.y = element_text(face = "italic"))
+
+#### response curves ###########################################################
+# Partial dependence on summer soil temperature, with 95% credible ribbon
+
+t_seq <- seq(min(x_train$summer_t_int), max(x_train$summer_t_int), length.out = 50)
+
+pd_all <- map_dfr(modelable_species, function(sp) {
+  map_dfr(t_seq, function(t) {
+    x_pd <- x_train
+    x_pd$summer_t_int <- t
+    draws <- rowMeans(dbarts:::predict.bart(bart_models[[sp]], newdata = x_pd))
+    tibble(species = sp, summer_t_int = t,
+           mean = mean(draws),
+           lower = quantile(draws, 0.025),
+           upper = quantile(draws, 0.975))
+  })
+})
+
+ggplot(pd_all, aes(summer_t_int, mean)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  geom_line() +
+  facet_wrap(~ species, ncol = 4) +
+  labs(x = "Summer soil temperature (°C)", y = "Occurrence probability") +
+  theme_minimal() +
+  theme(strip.text = element_text(face = "italic"))
