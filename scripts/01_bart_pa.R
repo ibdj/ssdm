@@ -441,3 +441,4 @@ ggplot(cred_table, aes(x = species, y = mean_change,
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "italic"))
 
+## response curces
