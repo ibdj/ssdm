@@ -112,6 +112,11 @@ species_rasts <- setNames(lapply(modelable_species, function(sp) {
 plot(trim(species_rasts[["Betula nana"]]))
 
 ##### 5 fold validation ########################################################
+# CV refits are throwaway (only AUC is kept), so parallel is fine here.
+
+library(parallel)
+library(doParallel)
+library(foreach)
 
 cl <- makeCluster(4)
 registerDoParallel(cl)
@@ -128,7 +133,7 @@ cv_results <- foreach(sp = modelable_species,
                         # Stratified folds
                         pres_idx <- which(y == 1)
                         abs_idx  <- which(y == 0)
-                        folds <- numeric(100)
+                        folds <- numeric(length(y))
                         folds[pres_idx] <- sample(rep(1:5, length.out = length(pres_idx)))
                         folds[abs_idx]  <- sample(rep(1:5, length.out = length(abs_idx)))
                         
@@ -136,7 +141,7 @@ cv_results <- foreach(sp = modelable_species,
                           train_idx <- which(folds != k)
                           test_idx  <- which(folds == k)
                           
-                          train_data <- cbind(x_train[train_idx, ], y = y[train_idx]) |> 
+                          train_data <- cbind(x_train[train_idx, ], y = y[train_idx]) |>
                             as.data.frame()
                           
                           cv_model <- dbarts::bart2(
@@ -147,7 +152,7 @@ cv_results <- foreach(sp = modelable_species,
                           )
                           
                           pred <- colMeans(
-                            dbarts:::predict.bart(cv_model, 
+                            dbarts:::predict.bart(cv_model,
                                                   newdata = as.data.frame(x_train[test_idx, ]))
                           )
                           
@@ -169,8 +174,8 @@ cv_results <- cv_results |>
     TRUE           ~ "Fail"
   ))
 
-cv_results |> 
-  tibble::as_tibble() |> 
+cv_results |>
+  tibble::as_tibble() |>
   print(n = Inf)
 
 
