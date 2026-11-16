@@ -278,3 +278,28 @@ ggplot(cred_table, aes(x = species, y = mean_change,
        colour = "Scenario", shape = "Scenario") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "italic"))
+#### variable importance plot ##################################################
+
+varimp_long <- map_dfr(modelable_species, function(sp) {
+  vc <- bart_models[[sp]]$varcount
+  
+  # Average across chains (dim 1) and iterations (dim 2)
+  counts <- apply(vc, 3, mean)
+  
+  tibble(
+    variable = pred_names,
+    importance = counts / sum(counts),
+    species = sp
+  )
+})
+
+head(varimp_long)
+
+ggplot(varimp_long, aes(x = variable, y = species, fill = importance)) +
+  geom_tile() +
+  scale_fill_viridis_c(name = "Importance") +
+  labs(x = "Variable", y = "Species",
+       title = "Variable importance across BART SDMs") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text.y = element_text(face = "italic"))
