@@ -303,3 +303,87 @@ ggplot(varimp_long, aes(x = variable, y = species, fill = importance)) +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         axis.text.y = element_text(face = "italic"))
+
+#### Explained variance partitioned by predictor plot ##########################
+
+# Calculate full model R2 per species
+r2_results <- map_dfr(modelable_species, function(sp) {
+  predicted <- colMeans(
+    dbarts:::predict.bart(bart_models[[sp]],
+                          newdata = as.data.frame(x_train))
+  )
+  observed <- pa_matrix[[sp]]
+  
+  ss_res <- sum((observed - predicted)^2)
+  ss_tot <- sum((observed - mean(observed))^2)
+  r2 <- 1 - (ss_res / ss_tot)
+  
+  tibble(species = sp, r2 = round(r2, 3))
+}) |>
+  arrange(desc(r2))
+
+# R2 drop when each variable is excluded
+varimp_r2 <- map_dfr(modelable_species, function(sp) {
+  observed <- pa_matrix[[sp]]
+  
+  # Full model R2
+  full_pred <- colMeans(dbarts:::predict.bart(bart_models[[sp]],
+                                              newdata = as.data.frame(x_train)))
+  ss_tot <- sum((observed - mean(observed))^2)
+  r2_full <- 1 - sum((observed - full_pred)^2) / ss_tot
+  
+  # R2 drop per variable
+  map_dfr(pred_names, function(var) {
+    x_reduced <- x_train
+    x_reduced[[var]] <- mean(x_train[[var]], na.rm = TRUE)
+    
+    red_pred <- colMeans(dbarts:::predict.bart(bart_models[[sp]],
+                                               newdata = as.data.frame(x_reduced)))
+    r2_reduced <- 1 - sum((observed - red_pred)^2) / ss_tot
+    
+    tibble(species = sp, variable = var,
+           r2_drop = max(0, r2_full - r2_reduced))
+  })
+})
+
+# Normalise r2_drop to sum to r2_full per species
+varimp_r2_norm <- varimp_r2 |>
+  left_join(r2_results, by = "species") |>
+  group_by(species) |>
+  mutate(r2_drop_norm = (r2_drop / sum(r2_drop)) * r2) |>
+  ungroup()
+
+# Recalculate unexplained
+unexplained <- r2_results |>
+  mutate(variable = "Unexplained",
+         r2_drop_norm = 1 - r2)
+
+# Combine
+plot_data <- varimp_r2_norm |>
+  dplyr::select(species, variable, r2_drop_norm) |>
+  bind_rows(dplyr::select(unexplained, species, variable, r2_drop_norm)) |>
+  mutate(
+    species = factor(species, levels = r2_results$species),
+    variable = factor(variable, levels = c("Unexplained", rev(pred_names)))
+  )
+
+# Plot
+ggplot(plot_data, aes(x = r2_drop_norm, y = species, fill = variable)) +
+  geom_bar(stat = "identity") +
+  scale_x_continuous(labels = scales::percent) +
+  scale_fill_manual(
+    values = c(
+      "elevation"      = "#2ca02c",
+      "slope"          = "#ff7f0e",
+      "ndwi"           = "#1f77b4",
+      "hli"            = "#9467bd",
+      "snowfree"       = "#e377c2",
+      "summer_t_int"   = "#d62728",
+      "Unexplained"    = "#D9D9D9"
+    )
+  ) +
+  labs(x = "Proportion of variance", y = NULL,
+       fill = "Variable",
+       title = "Explained variance partitioned by predictor") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(face = "italic"))
