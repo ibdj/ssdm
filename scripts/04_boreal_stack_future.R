@@ -2,6 +2,7 @@
 
 library(tidyverse)
 library(terra)
+library(dbarts)
 
 # matching names
 
@@ -90,10 +91,6 @@ ggplot(sp_change, aes(B_std, delta_p)) +
 
 # 05_boreal_cwm_posterior.R
 # Posterior credible intervals for AOI-level change in community borealness (CWM)
-
-library(tidyverse)
-library(terra)
-library(dbarts)
 
 #### setup #####################################################################
 
