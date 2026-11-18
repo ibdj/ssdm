@@ -412,3 +412,19 @@ ggplot(pd_all, aes(summer_t_int, mean)) +
   labs(x = "Summer soil temperature (°C)", y = "Occurrence probability") +
   theme_minimal() +
   theme(strip.text = element_text(face = "italic"))
+
+##### Distribution of plots across environmental predictors ####################
+
+# Pivot x_train to long format for faceted plotting
+x_train_long <- x_train |>
+  pivot_longer(everything(),
+               names_to = "variable",
+               values_to = "value")
+
+# Histogram of plot distribution across each predictor
+ggplot(x_train_long, aes(x = value)) +
+  geom_histogram(bins = 20, fill = "#2E75B6", colour = "white") +
+  facet_wrap(~ variable, scales = "free") +
+  labs(x = "Value", y = "Number of plots",
+       title = "Distribution of plots across environmental predictors") +
+  theme_minimal()
