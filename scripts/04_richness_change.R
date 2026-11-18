@@ -130,3 +130,23 @@ ggplot(rich_pix_df, aes(x = change, fill = scenario)) +
        y = "Number of pixels",
        fill = NULL, colour = NULL) +
   theme_minimal()
+
+## change plot ############
+pred_stack <- terra::rast("data/pred_stack.tif")
+idx <- complete.cases(terra::as.data.frame(pred_stack, na.rm = FALSE))
+
+rich_cur_df <- rich_pix_df |>
+  dplyr::mutate(current = rep(terra::values(richness[["current"]], mat = FALSE)[idx],
+                              times = dplyr::n_distinct(scenario)))
+stopifnot(!anyNA(rich_cur_df$current))
+
+ggplot(rich_cur_df, aes(current, change)) +
+  geom_bin_2d(bins = 60) +
+  geom_hline(yintercept = 0, colour = "grey30") +
+  geom_smooth(colour = "black", linewidth = 0.6) +
+  scale_fill_viridis_c(trans = "log10") +
+  facet_wrap(~scenario) +
+  labs(x = "Current stacked species richness",
+       y = "Change in stacked species richness (posterior median)",
+       fill = "Pixels") +
+  theme_minimal()
