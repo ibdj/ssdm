@@ -409,6 +409,7 @@ ggplot(pd_all, aes(summer_t_int, mean)) +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
   geom_line() +
   facet_wrap(~ species, ncol = 4) +
+  #facet_wrap(~ species, ncol = 4, scales = "free_y")+
   labs(x = "Summer soil temperature (°C)", y = "Occurrence probability") +
   theme_minimal() +
   theme(strip.text = element_text(face = "italic"))
